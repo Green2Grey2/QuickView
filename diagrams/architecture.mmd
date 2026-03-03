@@ -1,0 +1,36 @@
+```mermaid
+flowchart LR
+  subgraph UI[GTK4 / libadwaita UI Process]
+    A[App entry\nCLI + .desktop] --> B{Mode?}
+    B -->|--quick-preview| Q[Quick Preview Window\n(borderless overlay)]
+    B -->|default| F[Full Viewer Window]
+    Q --> R[Renderer\n(texture + transforms)]
+    F --> R
+    R --> O[OCR Overlay Layer\n(hit-testing + selection)]
+  end
+
+  subgraph IMG[Image Pipeline]
+    I1[Open file / stdin] --> I2[Decode image]
+    I2 --> I3[GdkTexture]
+  end
+
+  subgraph OCR[OCR Pipeline]
+    T1[Prepare bitmap\n(optional preprocess)] --> T2[OCR engine]
+    T2 --> T3[Layout output\n(TSV/HOCR)]
+    T3 --> T4[Parsed boxes\nwords/lines + confidence]
+  end
+
+  I1 --> I2 --> I3 --> R
+  I3 --> T1 --> T2 --> T3 --> T4 --> O
+
+  subgraph Cache[Cache]
+    C1[(In-memory cache)]:::cache
+    C2[(Optional persistent cache)]:::cache
+  end
+
+  T4 --> C1
+  C1 --> O
+  T4 --> C2
+
+  classDef cache fill:#f2f2f2,stroke:#bbb,color:#111;
+```

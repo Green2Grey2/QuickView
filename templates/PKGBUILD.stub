@@ -1,0 +1,27 @@
+# Starter template. The canonical PKGBUILD is packaging/arch/PKGBUILD.
+# Maintainer: Babken Egoian <https://github.com/Green2Grey2>
+pkgname=quickview
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Wayland image viewer with OCR text selection"
+arch=("x86_64")
+url="https://github.com/Green2Grey2/QuickView"
+license=("MIT")
+depends=("gtk4" "libadwaita" "tesseract")
+# Optional recommended deps:
+# depends+=("gtk4-layer-shell")
+# depends+=("glycin")  # if packaged; otherwise vendor/build
+
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=("SKIP")
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  # e.g. cargo build --release
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  # install -Dm755 target/release/quickview "$pkgdir/usr/bin/quickview"
+  # install -Dm644 templates/quickview.desktop "$pkgdir/usr/share/applications/quickview.desktop"
+}

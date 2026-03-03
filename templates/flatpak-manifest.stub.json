@@ -1,0 +1,25 @@
+{
+  "_note": "This is a starter template. The canonical manifest is packaging/flatpak/com.example.QuickView.json.",
+  "app-id": "com.example.QuickView",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "46",
+  "sdk": "org.gnome.Sdk",
+  "command": "quickview",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--filesystem=host:ro"
+  ],
+  "modules": [
+    {
+      "name": "quickview",
+      "buildsystem": "simple",
+      "build-commands": [
+        "# Replace with your build system commands (cargo build, meson, etc.)"
+      ],
+      "sources": [
+        { "type": "dir", "path": "." }
+      ]
+    }
+  ]
+}

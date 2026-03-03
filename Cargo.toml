@@ -1,0 +1,19 @@
+[workspace]
+members = [
+  "crates/quickview-core",
+  "crates/quickview-ui",
+  "crates/quickview",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.83"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+

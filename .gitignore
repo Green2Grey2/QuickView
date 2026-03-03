@@ -1,0 +1,31 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local tooling
+.env
+.env.*
+
+# Flatpak build
+.flatpak-builder/
+builddir/
+repo/
+
+# Claude Code (keep CLAUDE.md, ignore session data)
+.claude/*
+!.claude/CLAUDE.md
+

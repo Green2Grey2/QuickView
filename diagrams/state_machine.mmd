@@ -1,0 +1,14 @@
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> LoadingImage: Open(path/stdin)
+  LoadingImage --> ShowingImage: First render ready
+  ShowingImage --> OcrRunning: Spawn OCR job
+  OcrRunning --> OcrReady: OCR results arrive
+  OcrReady --> Selecting: User drag-selects text
+  Selecting --> OcrReady: Selection cleared
+  ShowingImage --> Closed: Space/Esc
+  OcrRunning --> Closed: Space/Esc (cancel/ignore)
+  OcrReady --> Closed: Space/Esc
+  Closed --> [*]
+```

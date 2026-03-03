@@ -1,0 +1,20 @@
+[package]
+name = "quickview"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "quickview"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+clap = { version = "4", features = ["derive"] }
+
+quickview-ui = { path = "../quickview-ui" }
+

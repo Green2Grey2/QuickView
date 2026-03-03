@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.example.QuickView</id>
+  <name>QuickView</name>
+  <summary>Wayland image viewer with OCR text selection</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      QuickView provides a fast Quick Look–style preview window and an OCR-backed
+      text selection layer for images.
+    </p>
+  </description>
+
+  <url type="homepage">https://github.com/Green2Grey2/QuickView</url>
+  <url type="bugtracker">https://github.com/Green2Grey2/QuickView/issues</url>
+
+  <launchable type="desktop-id">com.example.QuickView.desktop</launchable>
+
+  <provides>
+    <binary>quickview</binary>
+  </provides>
+
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-03-02">
+      <description>
+        <p>Initial scaffold release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

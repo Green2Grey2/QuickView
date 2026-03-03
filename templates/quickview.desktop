@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=QuickView
+Comment=Wayland image viewer with OCR text selection
+Exec=quickview %f
+Icon=com.example.QuickView
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/tiff;image/bmp;image/svg+xml;
+
+# Optional: expose a dedicated “Quick Preview” action in file managers that support actions.
+Actions=QuickPreview;
+
+[Desktop Action QuickPreview]
+Name=Quick Preview
+Exec=quickview --quick-preview %f
