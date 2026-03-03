@@ -1,4 +1,3 @@
-```mermaid
 stateDiagram-v2
   [*] --> Idle
   Idle --> LoadingImage: Open(path/stdin)
@@ -11,4 +10,3 @@ stateDiagram-v2
   OcrRunning --> Closed: Space/Esc (cancel/ignore)
   OcrReady --> Closed: Space/Esc
   Closed --> [*]
-```
