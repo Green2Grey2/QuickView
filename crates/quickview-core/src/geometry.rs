@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use std::fmt;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f64,
@@ -42,30 +44,100 @@ impl Rect {
     }
 }
 
+/// Result of `ViewTransform::contain()`.
+///
+/// This represents the baseline "fit to widget" (contain) scale and the widget-space
+/// center point used by `ViewTransform::from_center()`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ContainResult {
+    /// Uniform scale that fits the entire image inside the widget.
+    pub contain_scale: f64,
+
+    /// Center of the widget in widget coordinates (pixels).
+    pub widget_center: Point,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewTransformError {
+    NonFinite,
+    NonPositiveScale,
+}
+
+impl fmt::Display for ViewTransformError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ViewTransformError::NonFinite => write!(f, "non-finite view transform value"),
+            ViewTransformError::NonPositiveScale => write!(f, "scale must be > 0"),
+        }
+    }
+}
+
+impl std::error::Error for ViewTransformError {}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ViewTransform {
-    pub scale: f64,
-    pub offset_x: f64,
-    pub offset_y: f64,
+    scale: f64,
+    offset_x: f64,
+    offset_y: f64,
 }
 
 impl ViewTransform {
-    pub fn contain(widget_w: f64, widget_h: f64, image_w: f64, image_h: f64) -> (f64, Point) {
+    pub fn new(scale: f64, offset_x: f64, offset_y: f64) -> Result<Self, ViewTransformError> {
+        if !scale.is_finite() || !offset_x.is_finite() || !offset_y.is_finite() {
+            return Err(ViewTransformError::NonFinite);
+        }
+        if scale <= 0.0 {
+            return Err(ViewTransformError::NonPositiveScale);
+        }
+        Ok(Self {
+            scale,
+            offset_x,
+            offset_y,
+        })
+    }
+
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+
+    pub fn offset_x(&self) -> f64 {
+        self.offset_x
+    }
+
+    pub fn offset_y(&self) -> f64 {
+        self.offset_y
+    }
+
+    /// Compute the baseline "contain" (fit-to-widget) scale.
+    ///
+    /// The returned `widget_center` is in widget coordinates (pixels) and is the point
+    /// that `from_center()` treats as the widget's visual center anchor.
+    pub fn contain(widget_w: f64, widget_h: f64, image_w: f64, image_h: f64) -> ContainResult {
         let widget_center = Point {
             x: widget_w.max(0.0) * 0.5,
             y: widget_h.max(0.0) * 0.5,
         };
 
         if widget_w <= 0.0 || widget_h <= 0.0 || image_w <= 0.0 || image_h <= 0.0 {
-            return (1.0, widget_center);
+            return ContainResult {
+                contain_scale: 1.0,
+                widget_center,
+            };
         }
 
         let contain_scale = (widget_w / image_w)
             .min(widget_h / image_h)
             .max(f64::MIN_POSITIVE);
-        (contain_scale, widget_center)
+        ContainResult {
+            contain_scale,
+            widget_center,
+        }
     }
 
+    /// Construct a `ViewTransform` from canonical view state.
+    ///
+    /// `center_img.x` and `center_img.y` must be finite. This function delegates validation
+    /// to `ViewTransform::new` and will panic if invariants are violated.
     pub fn from_center(
         widget_w: f64,
         widget_h: f64,
@@ -74,14 +146,22 @@ impl ViewTransform {
         zoom_factor: f64,
         center_img: Point,
     ) -> Self {
-        let (contain_scale, widget_center) = Self::contain(widget_w, widget_h, image_w, image_h);
-        let scale = (contain_scale * zoom_factor.max(f64::MIN_POSITIVE)).max(f64::MIN_POSITIVE);
+        // `from_center()` delegates invariants to `ViewTransform::new`.
+        // `center_img.x` / `center_img.y` must be finite or `ViewTransform::new` will error.
+        debug_assert!(
+            center_img.x.is_finite() && center_img.y.is_finite(),
+            "from_center: center_img must be finite (x={}, y={})",
+            center_img.x,
+            center_img.y
+        );
 
-        Self {
-            scale,
-            offset_x: widget_center.x - center_img.x * scale,
-            offset_y: widget_center.y - center_img.y * scale,
-        }
+        let contain = Self::contain(widget_w, widget_h, image_w, image_h);
+        let scale =
+            (contain.contain_scale * zoom_factor.max(f64::MIN_POSITIVE)).max(f64::MIN_POSITIVE);
+
+        let offset_x = contain.widget_center.x - center_img.x * scale;
+        let offset_y = contain.widget_center.y - center_img.y * scale;
+        Self::new(scale, offset_x, offset_y).expect("ViewTransform invariants violated")
     }
 
     pub fn image_to_widget(&self, point: Point) -> Point {
@@ -213,10 +293,11 @@ mod tests {
             zoom_new,
             center_start,
         );
-        let (_, widget_center) = ViewTransform::contain(widget_w, widget_h, image_w, image_h);
+        let contain = ViewTransform::contain(widget_w, widget_h, image_w, image_h);
+        let widget_center = contain.widget_center;
         let center_new = Point {
-            x: anchor_img.x - (anchor_widget.x - widget_center.x) / t_new_unclamped.scale,
-            y: anchor_img.y - (anchor_widget.y - widget_center.y) / t_new_unclamped.scale,
+            x: anchor_img.x - (anchor_widget.x - widget_center.x) / t_new_unclamped.scale(),
+            y: anchor_img.y - (anchor_widget.y - widget_center.y) / t_new_unclamped.scale(),
         };
         let t_new =
             ViewTransform::from_center(widget_w, widget_h, image_w, image_h, zoom_new, center_new);

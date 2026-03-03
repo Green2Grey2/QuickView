@@ -41,7 +41,7 @@ quickview photo.png
 
 ## Requirements
 
-Arch Linux (primary target):
+Arch Linux (primary target, requires GTK4 >= 4.10):
 
 ```bash
 sudo pacman -S --needed \

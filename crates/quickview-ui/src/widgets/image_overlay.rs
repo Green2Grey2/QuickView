@@ -7,7 +7,7 @@ use gtk4 as gtk;
 
 use quickview_core::{
     geometry::{Point, Rect, ViewTransform},
-    ocr::{models::OcrResult, select},
+    ocr::{index::OcrWordIndex, models::OcrResult, select},
 };
 
 const MIN_ZOOM_FACTOR: f64 = 1.0;
@@ -149,14 +149,14 @@ mod imp {
             };
 
             let bounds = gtk::graphene::Rect::new(
-                transform.offset_x as f32,
-                transform.offset_y as f32,
-                (state.image_width * transform.scale) as f32,
-                (state.image_height * transform.scale) as f32,
+                transform.offset_x() as f32,
+                transform.offset_y() as f32,
+                (state.image_width * transform.scale()) as f32,
+                (state.image_height * transform.scale()) as f32,
             );
             snapshot.append_scaled_texture(
                 texture,
-                scaling_filter_for_scale(transform.scale),
+                scaling_filter_for_scale(transform.scale()),
                 &bounds,
             );
 
@@ -195,6 +195,7 @@ mod imp {
         pub(super) image_width: f64,
         pub(super) image_height: f64,
         pub(super) ocr: Option<OcrResult>,
+        pub(super) ocr_index: Option<OcrWordIndex>,
         pub(super) selected_indices: Vec<usize>,
 
         pub(super) zoom_factor: f64,
@@ -222,6 +223,7 @@ mod imp {
                 image_width: 0.0,
                 image_height: 0.0,
                 ocr: None,
+                ocr_index: None,
                 selected_indices: Vec::new(),
                 zoom_factor: 1.0,
                 center_img: Point::default(),
@@ -263,6 +265,8 @@ impl ZoomableCanvas {
         state.texture = Some(texture.clone());
         state.image_width = texture.width() as f64;
         state.image_height = texture.height() as f64;
+        state.ocr = None;
+        state.ocr_index = None;
         state.zoom_factor = MIN_ZOOM_FACTOR;
         state.center_img = Point {
             x: state.image_width * 0.5,
@@ -280,6 +284,10 @@ impl ZoomableCanvas {
     pub fn set_ocr_result(&self, result: Option<OcrResult>) {
         let mut state = self.imp().state.borrow_mut();
         state.ocr = result;
+        state.ocr_index = state
+            .ocr
+            .as_ref()
+            .map(|ocr| OcrWordIndex::build(&ocr.words, state.image_width, state.image_height));
         state.selected_indices.clear();
         state.selecting = false;
         drop(state);
@@ -486,15 +494,15 @@ impl ZoomableCanvas {
 
             if let Some(transform) = transform_for_widget(&mut state, widget_w, widget_h) {
                 state.center_img = Point {
-                    x: state.pan_start_center_img.x - (dx / transform.scale),
-                    y: state.pan_start_center_img.y - (dy / transform.scale),
+                    x: state.pan_start_center_img.x - (dx / transform.scale()),
+                    y: state.pan_start_center_img.y - (dy / transform.scale()),
                 };
                 state.center_img = ViewTransform::clamp_center(
                     widget_w,
                     widget_h,
                     state.image_width,
                     state.image_height,
-                    transform.scale,
+                    transform.scale(),
                     state.center_img,
                 );
                 needs_redraw = true;
@@ -514,14 +522,22 @@ impl ZoomableCanvas {
                     Rect::from_points(state.select_start_widget, state.select_current_widget);
                 let sel_image = transform.widget_rect_to_image(sel_widget);
 
-                let selected = if let Some(ocr) = &state.ocr {
-                    ocr.words
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(idx, word)| word.bbox.intersects(&sel_image).then_some(idx))
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
+                let selected = {
+                    let s: &mut imp::CanvasState = &mut state;
+                    match (&s.ocr, &mut s.ocr_index) {
+                        (Some(ocr), Some(index)) => {
+                            index.query_intersecting(&ocr.words, &sel_image)
+                        }
+                        (Some(ocr), None) => ocr
+                            .words
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(idx, word)| {
+                                word.bbox.intersects(&sel_image).then_some(idx)
+                            })
+                            .collect::<Vec<_>>(),
+                        _ => Vec::new(),
+                    }
                 };
                 state.selected_indices = selected;
                 needs_redraw = true;
@@ -582,7 +598,7 @@ impl ZoomableCanvas {
                 state.pinch_start_zoom_factor,
                 state.pinch_start_center_img,
             )
-            .scale;
+            .scale();
             let begin_center = ViewTransform::clamp_center(
                 widget_w,
                 widget_h,
@@ -634,9 +650,10 @@ impl ZoomableCanvas {
             state.zoom_factor,
             state.center_img,
         )
-        .scale;
-        let (_, widget_center) =
-            ViewTransform::contain(widget_w, widget_h, state.image_width, state.image_height);
+        .scale();
+        let widget_center =
+            ViewTransform::contain(widget_w, widget_h, state.image_width, state.image_height)
+                .widget_center;
         state.center_img = recenter_for_anchor(widget_center, new_scale, anchor_widget, anchor_img);
         state.center_img = ViewTransform::clamp_center(
             widget_w,
@@ -696,9 +713,10 @@ impl ZoomableCanvas {
             state.zoom_factor,
             state.center_img,
         )
-        .scale;
-        let (_, widget_center) =
-            ViewTransform::contain(widget_w, widget_h, state.image_width, state.image_height);
+        .scale();
+        let widget_center =
+            ViewTransform::contain(widget_w, widget_h, state.image_width, state.image_height)
+                .widget_center;
         state.center_img = recenter_for_anchor(widget_center, new_scale, anchor_widget, anchor_img);
         state.center_img = ViewTransform::clamp_center(
             widget_w,
@@ -778,7 +796,7 @@ fn transform_for_widget(
         widget_h,
         state.image_width,
         state.image_height,
-        transform.scale,
+        transform.scale(),
         state.center_img,
     );
     if point_changed(clamped, state.center_img) {
@@ -838,7 +856,7 @@ fn contain_scale_for_dims(widget_w: f64, widget_h: f64, image_w: f64, image_h: f
     if widget_w <= 0.0 || widget_h <= 0.0 || image_w <= 0.0 || image_h <= 0.0 {
         return None;
     }
-    Some(ViewTransform::contain(widget_w, widget_h, image_w, image_h).0)
+    Some(ViewTransform::contain(widget_w, widget_h, image_w, image_h).contain_scale)
 }
 
 fn effective_scale_for_dims(
@@ -943,7 +961,8 @@ mod tests {
         let image_w = 12000.0;
         let image_h = 8000.0;
 
-        let contain_scale = ViewTransform::contain(widget_w, widget_h, image_w, image_h).0;
+        let contain_scale =
+            ViewTransform::contain(widget_w, widget_h, image_w, image_h).contain_scale;
         let max_zoom = max_zoom_factor_for_dims(widget_w, widget_h, image_w, image_h);
         let max_absolute_scale = contain_scale * max_zoom;
 
