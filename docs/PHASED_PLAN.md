@@ -8,7 +8,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 0 — Repo + tooling foundation
+## Phase 0 — Repo + tooling foundation ✅
 
 **Deliverables**
 - Repository structure (`crates/`, `docs/`, `adrs/`)
@@ -17,105 +17,105 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 - Packaging skeletons (Arch PKGBUILD stub + Flatpak manifest stub)
 
 **Definition of done**
-- `build` succeeds on Arch in a clean environment
-- `run` launches an empty window without warnings
-- `docs/` renders in your preferred markdown viewer
+- `build` succeeds on Arch in a clean environment ✅
+- `run` launches an empty window without warnings ✅
+- `docs/` renders in your preferred markdown viewer ✅
 
 ---
 
-## Phase 1 — Full Viewer: open + display image
+## Phase 1 — Full Viewer: open + display image ✅
 
 **Core tasks**
 - Implement CLI parsing:
-  - `quickview <path>`
-  - `quickview --help`
+  - `quickview <path>` ✅
+  - `quickview --help` ✅
 - Load and display image:
-  - decode to a texture
-  - show in a viewer widget
-- Fit-to-window baseline
+  - decode to a texture ✅
+  - show in a viewer widget ✅
+- Fit-to-window baseline ✅
 - Keyboard shortcuts:
-  - `Esc` closes window
-  - `+/-` zoom (or Ctrl+scroll)
-- Basic UI shell with libadwaita (headerbar, etc.)
+  - `Esc` closes window ✅
+  - `+/-` zoom (or Ctrl+scroll) ✅
+- Basic UI shell with libadwaita (headerbar, etc.) ✅
 
 **Definition of done**
-- Opening a PNG/JPG renders correctly
-- No UI freezes during decode (decode is async or sufficiently fast)
-- *(Zoom and pan deferred — see Phase 5 or later)*
+- Opening a PNG/JPG renders correctly ✅
+- No UI freezes during decode (decode is async or sufficiently fast) ✅
+- Zoom and pan: Ctrl+scroll, pinch-to-zoom, +/- keys, middle-drag pan ✅
 
 ---
 
-## Phase 2 — Directory navigation + info panel
+## Phase 2 — Directory navigation + info panel (partially done)
 
 **Core tasks**
-- Identify “image set” as all supported images in the same directory
-- Maintain a sorted list and current index
+- Identify “image set” as all supported images in the same directory ✅
+- Maintain a sorted list and current index ✅
 - Add navigation:
-  - Left/Right arrows to prev/next
+  - Left/Right arrows to prev/next ✅
 - Add info panel:
   - filename
   - dimensions
   - file size
 
 **Definition of done**
-- Prev/next navigation is correct and stable
+- Prev/next navigation is correct and stable ✅
 - Info updates immediately when switching images
 
 ---
 
-## Phase 3 — Quick Preview mode (borderless overlay)
+## Phase 3 — Quick Preview mode (borderless overlay) ✅
 
 **Core tasks**
 - Add a `--quick-preview` mode:
-  - borderless
-  - centered
-  - dismiss on Space/Esc
-- Implement “always-on-top” behavior
+  - borderless ✅
+  - centered ✅
+  - dismiss on Space/Esc ✅
+- Implement “always-on-top” behavior ✅
 - If available, integrate Layer Shell (wlroots-friendly overlay):
-  - runtime detect if Layer Shell is supported
-  - use overlay layer with appropriate keyboard focus policy
+  - runtime detect if Layer Shell is supported ✅
+  - use overlay layer with appropriate keyboard focus policy ✅
 
 **Definition of done**
-- `quickview --quick-preview <image>` shows a borderless preview and closes instantly on Space/Esc
-- Works on at least one wlroots compositor
+- `quickview --quick-preview <image>` shows a borderless preview and closes instantly on Space/Esc ✅
+- Works on at least one wlroots compositor ✅
 
 ---
 
-## Phase 4 — OCR pipeline integration (async)
+## Phase 4 — OCR pipeline integration (async) ✅
 
 **Core tasks**
-- Add OCR backend abstraction (interface/trait)
+- Add OCR backend abstraction (interface/trait) ✅
 - Implement default Tesseract backend:
-  - run OCR asynchronously
-  - produce word-level boxes + text
-- Add a non-blocking “OCR in progress” indicator
-- Ensure cancellation / ignoring late results when user navigates away
+  - run OCR asynchronously ✅
+  - produce word-level boxes + text ✅
+- Add a non-blocking “OCR in progress” indicator ✅
+- Ensure cancellation / ignoring late results when user navigates away ✅
 
 **Definition of done**
-- OCR starts after image display
-- OCR completion adds internal OCR result state (even before selection UI exists)
-- App stays responsive during OCR
+- OCR starts after image display ✅
+- OCR completion adds internal OCR result state (even before selection UI exists) ✅
+- App stays responsive during OCR ✅
 
 ---
 
-## Phase 5 — OCR overlay + text selection UX
+## Phase 5 — OCR overlay + text selection UX (partially done)
 
 **Core tasks**
-- Render OCR overlay (invisible by default or lightly highlighted on hover)
+- Render OCR overlay (invisible by default or lightly highlighted on hover) ✅
 - Implement drag-selection:
-  - compute selection rectangle in image coordinates
-  - highlight matched words
+  - compute selection rectangle in image coordinates ✅
+  - highlight matched words ✅
 - Implement copy:
-  - Ctrl+C copies selected text
+  - Ctrl+C copies selected text ✅
   - context menu action “Copy”
 
 **Definition of done**
-- User can reliably select and copy text from an image
-- Selection stays aligned under zoom/pan
+- User can reliably select and copy text from an image ✅
+- Selection stays aligned under zoom/pan ✅
 
 ---
 
-## Phase 6 — Integration polish
+## Phase 6 — Integration polish (not started)
 
 **Core tasks**
 - `.desktop` integration:
@@ -130,7 +130,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 7 — Hardening + performance
+## Phase 7 — Hardening + performance (not started)
 
 **Core tasks**
 - Add cache (in-memory first)
@@ -148,7 +148,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 8 — Nice-to-haves / future roadmap
+## Phase 8 — Nice-to-haves / future roadmap (not started)
 
 - Persistent OCR cache (SQLite)
 - Better layout/reading-order reconstruction

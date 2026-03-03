@@ -38,7 +38,8 @@ sudo pacman -S --needed tesseract tesseract-data-eng
 - Keep all OCR and I/O off the GTK main thread.
 - Use `async-channel` + `glib::MainContext::spawn_local()` to send results back to the UI.
 - Prefer small widgets with clear responsibilities:
-  - `ImageOverlayWidget` draws the image and highlights
+  - `ImageOverlayWidget` wraps the overlay + spinner; delegates to `ZoomableCanvas`
+  - `ZoomableCanvas` (custom `gtk::Widget` subclass) handles image rendering via GSK/Snapshot, zoom/pan state, selection gestures, and OCR highlight overlay
   - `ViewerController` manages OCR dispatch and yields `OcrResult`
 
 ## Useful tasks

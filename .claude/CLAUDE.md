@@ -51,9 +51,9 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Drag-select overlay with word highlighting
 - Ctrl+C clipboard copy
 - Stale OCR result cancellation via monotonic job IDs
+- Zoom & pan (Ctrl+scroll, pinch, +/- keys, middle-drag pan) via custom `ZoomableCanvas` widget
 
 ### What's not implemented yet:
-- Zoom and pan
 - Info panel (filename, dimensions, file size)
 - Context menu (right-click copy)
 - OCR caching (cache module exists but is not wired up)
@@ -81,5 +81,5 @@ cargo test --all
 - Never block the GTK main thread — all OCR and I/O runs on background threads
 - Use async-channel to send results back to the UI thread
 - quickview-core must have zero GTK dependencies (keeps it testable without a display server)
-- Coordinate transforms go through `compute_contain_transform()` — image coords vs widget coords
+- Coordinate transforms go through `ViewTransform::from_center()` and related methods in `geometry.rs` — image coords vs widget coords
 - OCR results use image-space coordinates; convert to widget-space only for rendering

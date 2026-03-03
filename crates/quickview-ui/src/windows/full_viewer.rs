@@ -27,6 +27,7 @@ pub fn present(app: &adw::Application, opts: &LaunchOptions) {
     // Key handling: arrows navigate, Ctrl+C copies.
     {
         let viewer = viewer.clone();
+        let overlay = viewer.overlay();
         let window_clone = window.clone();
         let controller = gtk::EventControllerKey::new();
         controller.connect_key_pressed(move |_, key, _, state| {
@@ -35,6 +36,22 @@ pub fn present(app: &adw::Application, opts: &LaunchOptions) {
             if is_ctrl && key == gtk::gdk::Key::c {
                 let display = WidgetExt::display(&window_clone);
                 viewer.copy_selection_to_clipboard(&display);
+                return glib::Propagation::Stop;
+            }
+
+            if key == gtk::gdk::Key::plus
+                || key == gtk::gdk::Key::equal
+                || key == gtk::gdk::Key::KP_Add
+            {
+                overlay.zoom_in();
+                return glib::Propagation::Stop;
+            }
+            if key == gtk::gdk::Key::minus || key == gtk::gdk::Key::KP_Subtract {
+                overlay.zoom_out();
+                return glib::Propagation::Stop;
+            }
+            if key == gtk::gdk::Key::_0 || key == gtk::gdk::Key::Home {
+                overlay.reset_view();
                 return glib::Propagation::Stop;
             }
 

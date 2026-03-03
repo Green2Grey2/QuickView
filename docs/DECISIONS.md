@@ -135,7 +135,24 @@ Recommendation: implement TSV first; add hOCR later as debug/export.
 
 ---
 
-### 8) Threading + cancellation
+### 8) Image rendering: custom Widget subclass + GSK/Snapshot pipeline
+
+**Why**
+- `gtk::Picture` does its own internal contain-fit with no way to inject a zoom/pan transform.
+- The GSK/Snapshot pipeline (`append_scaled_texture`) keeps the `GdkTexture` on the GPU — no `Texture::download()` to a Cairo surface, no CPU-bound rendering on the main thread.
+- Cairo is only used for lightweight overlay primitives (selection rect, OCR highlights) via `snapshot.append_cairo()`.
+
+**Tradeoffs**
+- Requires a custom `gtk::Widget` subclass (`ZoomableCanvas`) with `glib::subclass` boilerplate.
+- Requires GTK >= 4.10 for `append_scaled_texture` (the `v4_10` feature gate).
+
+**Alternatives considered**
+- **`gtk::Picture` + Cairo overlay**: simpler but `Texture::download()` blocks the main thread and wastes memory holding both GPU and CPU copies.
+- **`snapshot.save()/translate()/scale()/append_texture()`**: works without `v4_10` but no scaling filter control.
+
+---
+
+### 9) Threading + cancellation
 
 **Recommended**
 - OCR runs in a worker thread (or separate process) and returns results over a channel.

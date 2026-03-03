@@ -168,16 +168,29 @@ Selection requires mapping pointer coordinates → OCR boxes. Best practice:
 - at drag-select, query overlapping boxes, then order them by reading order (line then x)
 
 ### 7.3 Transform math
-Maintain a view transform `T`:
-- scale (zoom)
-- translation (pan)
-- fit-to-window baseline transform
+Implemented in `crates/quickview-core/src/geometry.rs` as `ViewTransform`.
+
+**Canonical state** (stored per-widget, resize-stable):
+- `zoom_factor: f64` — 1.0 = contain-fit
+- `center_img: Point` — image-space point at widget center
+
+**Deriving the transform each frame** (`ViewTransform::from_center`):
+- `contain_scale = min(widget_w / image_w, widget_h / image_h)`
+- `scale = contain_scale * zoom_factor`
+- `offset = widget_center - center_img * scale`
 
 Convert bounding boxes for render:
-- `bbox_widget = T(bbox_image)`
+- `bbox_widget = T(bbox_image)` via `image_rect_to_widget()`
 
-Hit-testing does the inverse:
-- `p_image = T^-1(p_widget)`
+Hit-testing and selection do the inverse:
+- `p_image = T⁻¹(p_widget)` via `widget_to_image()`
+- `sel_image = T⁻¹(sel_widget)` via `widget_rect_to_image()` — converts a drag-selection rectangle to image coordinates for OCR word intersection testing
+
+**Clamping**: `clamp_center()` keeps the image covering the viewport when zoomed in, or forces `center_img` to image center when the scaled image fits within the widget. Clamped values are written back to state to keep it canonical.
+
+**Zoom anchoring**: anchor-preserving math ensures the image point under the cursor (or pinch center) stays fixed after zoom. See `recenter_for_anchor()` in `image_overlay.rs`.
+
+**Rendering**: `ZoomableCanvas` (custom `gtk::Widget` subclass in `image_overlay.rs`) uses the GSK/Snapshot pipeline — `snapshot.append_scaled_texture()` for GPU-accelerated image rendering, `snapshot.append_cairo()` only for lightweight overlay primitives (selection rect, OCR highlights).
 
 ### 7.4 Copy semantics
 When copying selection:
