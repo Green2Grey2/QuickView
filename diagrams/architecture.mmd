@@ -1,12 +1,12 @@
 ```mermaid
 flowchart LR
   subgraph UI[GTK4 / libadwaita UI Process]
-    A[App entry\nCLI + .desktop] --> B{Mode?}
-    B -->|--quick-preview| Q[Quick Preview Window\n(borderless overlay)]
+    A[App entry<br/>CLI + .desktop] --> B{Mode?}
+    B -->|--quick-preview| Q[Quick Preview Window<br/>borderless overlay]
     B -->|default| F[Full Viewer Window]
-    Q --> R[Renderer\n(texture + transforms)]
+    Q --> R[Renderer<br/>texture + transforms]
     F --> R
-    R --> O[OCR Overlay Layer\n(hit-testing + selection)]
+    R --> O[OCR Overlay Layer<br/>hit-testing + selection]
   end
 
   subgraph IMG[Image Pipeline]
@@ -15,17 +15,17 @@ flowchart LR
   end
 
   subgraph OCR[OCR Pipeline]
-    T1[Prepare bitmap\n(optional preprocess)] --> T2[OCR engine]
-    T2 --> T3[Layout output\n(TSV/HOCR)]
-    T3 --> T4[Parsed boxes\nwords/lines + confidence]
+    T1[Prepare bitmap<br/>optional preprocess] --> T2[OCR engine]
+    T2 --> T3[Layout output<br/>TSV/HOCR]
+    T3 --> T4[Parsed boxes<br/>words/lines + confidence]
   end
 
   I1 --> I2 --> I3 --> R
   I3 --> T1 --> T2 --> T3 --> T4 --> O
 
   subgraph Cache[Cache]
-    C1[(In-memory cache)]:::cache
-    C2[(Optional persistent cache)]:::cache
+    C1[In-memory cache]:::cache
+    C2[Optional persistent cache]:::cache
   end
 
   T4 --> C1
