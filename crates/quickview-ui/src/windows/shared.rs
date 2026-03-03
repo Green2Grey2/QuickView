@@ -52,7 +52,6 @@ impl ViewerController {
         self.overlay.widget()
     }
 
-    #[allow(dead_code)]
     pub fn overlay(&self) -> ImageOverlayWidget {
         self.overlay.clone()
     }

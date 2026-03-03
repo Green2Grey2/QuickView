@@ -15,12 +15,12 @@ This architecture aims to satisfy the spec goals:
 ```mermaid
 flowchart LR
   subgraph UI[GTK4 / libadwaita UI Process]
-    A[App entry\nCLI + .desktop] --> B{Mode?}
-    B -->|--quick-preview| Q[Quick Preview Window\n(borderless overlay)]
+    A[App entry<br/>CLI + .desktop] --> B{Mode?}
+    B -->|--quick-preview| Q[Quick Preview Window<br/>borderless overlay]
     B -->|default| F[Full Viewer Window]
-    Q --> R[Renderer\n(texture + transforms)]
+    Q --> R[Renderer<br/>texture + transforms]
     F --> R
-    R --> O[OCR Overlay Layer\n(hit-testing + selection)]
+    R --> O[OCR Overlay Layer<br/>hit-testing + selection]
   end
 
   subgraph IMG[Image Pipeline]
@@ -29,17 +29,17 @@ flowchart LR
   end
 
   subgraph OCR[OCR Pipeline]
-    T1[Prepare bitmap\n(optional preprocess)] --> T2[OCR engine]
-    T2 --> T3[Layout output\n(TSV/HOCR)]
-    T3 --> T4[Parsed boxes\nwords/lines + confidence]
+    T1[Prepare bitmap<br/>optional preprocess] --> T2[OCR engine]
+    T2 --> T3[Layout output<br/>TSV/HOCR]
+    T3 --> T4[Parsed boxes<br/>words/lines + confidence]
   end
 
   I1 --> I2 --> I3 --> R
   I3 --> T1 --> T2 --> T3 --> T4 --> O
 
   subgraph Cache[Cache]
-    C1[(In-memory cache)]:::cache
-    C2[(Optional persistent cache)]:::cache
+    C1[In-memory cache]:::cache
+    C2[Optional persistent cache]:::cache
   end
 
   T4 --> C1
@@ -163,21 +163,36 @@ Store OCR results as:
 - optional: paragraph/block grouping for better selection behavior (future)
 
 ### 7.2 Hit testing
-Selection requires mapping pointer coordinates → OCR boxes. Best practice:
-- build a spatial index (e.g., grid index or R-tree) over word bounding boxes in image coordinates
-- at drag-select, query overlapping boxes, then order them by reading order (line then x)
+Selection requires mapping pointer coordinates → OCR boxes.
+
+Implemented in `crates/quickview-core/src/ocr/index.rs` as `OcrWordIndex` — a uniform-grid spatial index (256px cells) over word bounding boxes in image coordinates. Built once when OCR results arrive; queried on every drag-select update via `query_intersecting()`. Falls back to linear scan if no index is available.
 
 ### 7.3 Transform math
-Maintain a view transform `T`:
-- scale (zoom)
-- translation (pan)
-- fit-to-window baseline transform
+Implemented in `crates/quickview-core/src/geometry.rs` as `ViewTransform`.
+
+**Canonical state** (stored per-widget, resize-stable):
+- `zoom_factor: f64` — 1.0 = contain-fit
+- `center_img: Point` — image-space point at widget center
+
+**Deriving the transform each frame** (`ViewTransform::from_center`):
+- `contain()` returns a `ContainResult { contain_scale, widget_center }`
+- `scale = contain_scale * zoom_factor`
+- `offset = widget_center - center_img * scale`
+- Constructor validates non-finite and non-positive scale values (`ViewTransformError`)
+- Fields are private; accessed via `.scale()`, `.offset_x()`, `.offset_y()` getters
 
 Convert bounding boxes for render:
-- `bbox_widget = T(bbox_image)`
+- `bbox_widget = T(bbox_image)` via `image_rect_to_widget()`
 
-Hit-testing does the inverse:
-- `p_image = T^-1(p_widget)`
+Hit-testing and selection do the inverse:
+- `p_image = T⁻¹(p_widget)` via `widget_to_image()`
+- `sel_image = T⁻¹(sel_widget)` via `widget_rect_to_image()` — converts a drag-selection rectangle to image coordinates for OCR word intersection testing
+
+**Clamping**: `clamp_center()` keeps the image covering the viewport when zoomed in, or forces `center_img` to image center when the scaled image fits within the widget. Clamped values are written back to state to keep it canonical.
+
+**Zoom anchoring**: anchor-preserving math ensures the image point under the cursor (or pinch center) stays fixed after zoom. See `recenter_for_anchor()` in `image_overlay.rs`.
+
+**Rendering**: `ZoomableCanvas` (custom `gtk::Widget` subclass in `image_overlay.rs`) uses the GSK/Snapshot pipeline — `snapshot.append_scaled_texture()` for GPU-accelerated image rendering, `snapshot.append_cairo()` only for lightweight overlay primitives (selection rect, OCR highlights).
 
 ### 7.4 Copy semantics
 When copying selection:

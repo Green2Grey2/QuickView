@@ -35,11 +35,13 @@ quickview --quick-preview photo.png
 quickview photo.png
 ```
 
-**OCR Text Selection** — Tesseract runs asynchronously after the image loads. Drag to select recognized words, `Ctrl+C` to copy.
+**Zoom & Pan** — `Ctrl+scroll` to zoom at cursor, pinch-to-zoom on touchpad, `+`/`-` keys, `0` to reset. Middle-click drag or `Ctrl+left-drag` to pan.
+
+**OCR Text Selection** — Tesseract runs asynchronously after the image loads. Drag to select recognized words, `Ctrl+C` to copy. Selection stays aligned at any zoom level.
 
 ## Requirements
 
-Arch Linux (primary target):
+Arch Linux (primary target, requires GTK4 >= 4.10):
 
 ```bash
 sudo pacman -S --needed \

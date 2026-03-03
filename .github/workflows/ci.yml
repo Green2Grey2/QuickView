@@ -32,6 +32,7 @@ jobs:
             gtk4 libadwaita \
             tesseract tesseract-data-eng \
             gtk4-layer-shell
+          pkg-config --atleast-version=4.10 gtk4
           rustup default stable
 
       - name: Cache cargo registry and build artifacts
@@ -74,6 +75,7 @@ jobs:
             gtk4 libadwaita \
             tesseract tesseract-data-eng \
             gtk4-layer-shell
+          pkg-config --atleast-version=4.10 gtk4
           rustup default stable
 
       - name: Cache cargo registry, build artifacts, and tools

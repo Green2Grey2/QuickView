@@ -16,7 +16,7 @@ tracing.workspace = true
 
 quickview-core = { path = "../quickview-core" }
 
-gtk4 = { version = "0.10", package = "gtk4" }
+gtk4 = { version = "0.10", package = "gtk4", features = ["v4_10"] }
 adw = { version = "0.8", package = "libadwaita", features = ["v1_4"] }
 
 gtk4-layer-shell = "0.7"
@@ -25,4 +25,3 @@ async-channel = "2"
 
 # Optional: sandboxed image decoding (requires system glycin libs)
 glycin = { version = "3", optional = true }
-

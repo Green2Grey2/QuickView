@@ -9,7 +9,7 @@ url="https://github.com/Green2Grey2/QuickView"
 license=("MIT")
 
 depends=(
-  "gtk4"
+  "gtk4>=4.10"
   "libadwaita"
   "tesseract"
   "gtk4-layer-shell"

@@ -12,7 +12,7 @@ Primary target is Arch Linux + Wayland (wlroots compositors like Sway/Hyprland/n
 ## Repo Layout
 
 - `crates/quickview/`: CLI entrypoint (`quickview` binary).
-- `crates/quickview-core/`: non-GTK core (OCR parsing, geometry, selection logic, cache helpers).
+- `crates/quickview-core/`: non-GTK core (OCR parsing, geometry/ViewTransform, spatial index, selection logic, cache helpers).
 - `crates/quickview-ui/`: GTK4/libadwaita UI (full viewer + quick preview windows, overlay widget).
 - `docs/`: phased plan, architecture, decisions, development notes.
 - `adrs/`: deeper architecture decisions.
@@ -83,7 +83,7 @@ GitHub Actions runs in an `archlinux:latest` container and installs system packa
 - Quick Preview window: `crates/quickview-ui/src/windows/quick_preview.rs`
 - Full viewer window: `crates/quickview-ui/src/windows/full_viewer.rs`
 - Viewer controller (loads images, kicks OCR, ignores late results): `crates/quickview-ui/src/windows/shared.rs`
-- Overlay + drag selection rendering: `crates/quickview-ui/src/widgets/image_overlay.rs`
+- Image rendering, zoom/pan, drag selection, OCR overlay: `crates/quickview-ui/src/widgets/image_overlay.rs` (contains `ImageOverlayWidget` wrapper + `ZoomableCanvas` custom widget subclass)
 - Tesseract invocation + TSV parsing: `crates/quickview-core/src/ocr/`
 
 ## Project Invariants (Don't Break These)
