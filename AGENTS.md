@@ -12,7 +12,7 @@ Primary target is Arch Linux + Wayland (wlroots compositors like Sway/Hyprland/n
 ## Repo Layout
 
 - `crates/quickview/`: CLI entrypoint (`quickview` binary).
-- `crates/quickview-core/`: non-GTK core (OCR parsing, geometry, selection logic, cache helpers).
+- `crates/quickview-core/`: non-GTK core (OCR parsing, geometry/ViewTransform, spatial index, selection logic, cache helpers).
 - `crates/quickview-ui/`: GTK4/libadwaita UI (full viewer + quick preview windows, overlay widget).
 - `docs/`: phased plan, architecture, decisions, development notes.
 - `adrs/`: deeper architecture decisions.

@@ -163,9 +163,9 @@ Store OCR results as:
 - optional: paragraph/block grouping for better selection behavior (future)
 
 ### 7.2 Hit testing
-Selection requires mapping pointer coordinates → OCR boxes. Best practice:
-- build a spatial index (e.g., grid index or R-tree) over word bounding boxes in image coordinates
-- at drag-select, query overlapping boxes, then order them by reading order (line then x)
+Selection requires mapping pointer coordinates → OCR boxes.
+
+Implemented in `crates/quickview-core/src/ocr/index.rs` as `OcrWordIndex` — a uniform-grid spatial index (256px cells) over word bounding boxes in image coordinates. Built once when OCR results arrive; queried on every drag-select update via `query_intersecting()`. Falls back to linear scan if no index is available.
 
 ### 7.3 Transform math
 Implemented in `crates/quickview-core/src/geometry.rs` as `ViewTransform`.
@@ -175,9 +175,11 @@ Implemented in `crates/quickview-core/src/geometry.rs` as `ViewTransform`.
 - `center_img: Point` — image-space point at widget center
 
 **Deriving the transform each frame** (`ViewTransform::from_center`):
-- `contain_scale = min(widget_w / image_w, widget_h / image_h)`
+- `contain()` returns a `ContainResult { contain_scale, widget_center }`
 - `scale = contain_scale * zoom_factor`
 - `offset = widget_center - center_img * scale`
+- Constructor validates non-finite and non-positive scale values (`ViewTransformError`)
+- Fields are private; accessed via `.scale()`, `.offset_x()`, `.offset_y()` getters
 
 Convert bounding boxes for render:
 - `bbox_widget = T(bbox_image)` via `image_rect_to_widget()`

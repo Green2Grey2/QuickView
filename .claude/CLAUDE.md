@@ -81,5 +81,6 @@ cargo test --all
 - Never block the GTK main thread — all OCR and I/O runs on background threads
 - Use async-channel to send results back to the UI thread
 - quickview-core must have zero GTK dependencies (keeps it testable without a display server)
-- Coordinate transforms go through `ViewTransform::from_center()` and related methods in `geometry.rs` — image coords vs widget coords
+- Coordinate transforms go through `ViewTransform::from_center()` and related methods in `geometry.rs` — image coords vs widget coords. Fields are private; use `.scale()`, `.offset_x()`, `.offset_y()` getters. `contain()` returns `ContainResult`.
 - OCR results use image-space coordinates; convert to widget-space only for rendering
+- OCR hit-testing uses `OcrWordIndex` spatial index (`ocr/index.rs`) for efficient drag-select queries
