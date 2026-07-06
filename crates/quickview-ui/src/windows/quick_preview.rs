@@ -65,12 +65,28 @@ pub fn present(
             backdrop.add_controller(click);
         }
 
+        // The canvas reports the image's natural size, and gtk::Overlay
+        // allocates centered overlay children at natural size — without a
+        // clamp a large image would grow the panel over the whole surface,
+        // leaving no backdrop to click. set_size_request is only a minimum;
+        // the clamps cap the maximum, so the panel is exactly
+        // PANEL_WIDTH x PANEL_HEIGHT and the canvas letterboxes inside it.
+        let vclamp = adw::Clamp::builder()
+            .maximum_size(PANEL_HEIGHT)
+            .orientation(gtk::Orientation::Vertical)
+            .child(&viewer.widget())
+            .build();
+        let hclamp = adw::Clamp::builder()
+            .maximum_size(PANEL_WIDTH)
+            .child(&vclamp)
+            .build();
+
         let panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
         panel.set_halign(gtk::Align::Center);
         panel.set_valign(gtk::Align::Center);
         panel.set_size_request(PANEL_WIDTH, PANEL_HEIGHT);
         panel.add_css_class("qv-preview-panel");
-        panel.append(&viewer.widget());
+        panel.append(&hclamp);
 
         let overlay = gtk::Overlay::new();
         overlay.set_child(Some(&backdrop));
