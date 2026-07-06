@@ -188,6 +188,22 @@ impl ViewerController {
                 };
                 self.overlay.set_texture(texture.clone());
                 self.emit_file_loaded(info);
+                // Re-stat now that the decode is done: if the file changed
+                // while the decoder had it open, the texture's provenance is
+                // ambiguous (old or new bytes), so the cache must sit this
+                // load out — a hit could paint stale boxes over new pixels
+                // and a store could file this OCR under a mismatched key.
+                // Matching nanosecond stamps on both sides of the decode pin
+                // the decoded version to the key.
+                let stamp = {
+                    let after = cache::FileStamp::read(&path);
+                    if after != stamp {
+                        tracing::debug!(
+                            "file changed during decode; skipping OCR cache for this load"
+                        );
+                    }
+                    (after == stamp).then_some(stamp)
+                };
                 // Let the freshly set texture reach the screen before OCR
                 // prep: an oversized image's pixel download blocks the main
                 // thread, and glib's default-idle priority runs after GTK's
@@ -251,7 +267,12 @@ impl ViewerController {
         self.overlay.copy_selection_to_clipboard();
     }
 
-    fn start_ocr(&self, path: PathBuf, texture: &gtk::gdk::Texture, stamp: cache::FileStamp) {
+    fn start_ocr(
+        &self,
+        path: PathBuf,
+        texture: &gtk::gdk::Texture,
+        stamp: Option<cache::FileStamp>,
+    ) {
         self.overlay.set_ocr_busy(true);
         self.overlay.set_ocr_result(None);
 
@@ -278,8 +299,12 @@ impl ViewerController {
         // full-resolution result under the same planned key: strictly better
         // content, and future opens then hit it without downloading either.
         let downscale_target = plan.map(|p| (p.target_w, p.target_h));
-        let entry = cache::cache_dir()
-            .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target, stamp));
+        // No stamp (file changed during decode) means no entry: neither the
+        // probe below nor the worker's load/store touch the cache this load.
+        let entry = stamp.and_then(|stamp| {
+            cache::cache_dir()
+                .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target, stamp))
+        });
         let probably_cached = entry.as_deref().is_some_and(|e| e.exists());
 
         let prep_started = std::time::Instant::now();
