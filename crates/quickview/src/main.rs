@@ -87,10 +87,15 @@ fn resolve_ocr_options(
     let env_lang = std::env::var("QUICKVIEW_LANG").ok();
     quickview_core::ocr::tesseract::OcrOptions {
         lang: config::resolve_lang(cli_lang.as_deref(), env_lang.as_deref(), &cfg),
-        tessdata_dir: cli_tessdata_dir
-            .or_else(|| cfg.ocr.tessdata_dir.clone())
+        tessdata_dir: non_blank(cli_tessdata_dir)
+            .or_else(|| non_blank(cfg.ocr.tessdata_dir.clone()))
             .map(absolutize),
     }
+}
+
+/// Blank is unset, at each precedence level — same rule as `resolve_lang`.
+fn non_blank(path: Option<PathBuf>) -> Option<PathBuf> {
+    path.filter(|p| !p.to_string_lossy().trim().is_empty())
 }
 
 /// Pin a possibly-relative path to this process's cwd.
@@ -151,6 +156,17 @@ mod tests {
     fn resolve_passes_missing_paths_through() {
         let p = resolve_input_path(Some("does-not-exist.png".into())).unwrap();
         assert_eq!(p, PathBuf::from("does-not-exist.png"));
+    }
+
+    #[test]
+    fn blank_tessdata_dir_is_unset() {
+        assert_eq!(non_blank(None), None);
+        assert_eq!(non_blank(Some(PathBuf::new())), None);
+        assert_eq!(non_blank(Some(PathBuf::from("  "))), None);
+        assert_eq!(
+            non_blank(Some(PathBuf::from("/opt/tessdata"))),
+            Some(PathBuf::from("/opt/tessdata"))
+        );
     }
 
     #[test]
