@@ -1,4 +1,4 @@
 pub mod full_viewer;
 pub mod quick_preview;
 
-mod shared;
+pub(crate) mod shared;

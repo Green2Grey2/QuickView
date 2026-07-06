@@ -80,9 +80,16 @@ impl ViewerController {
         self.overlay.clone()
     }
 
-    #[allow(dead_code)]
     pub fn current_file(&self) -> PathBuf {
         self.current_file.borrow().clone()
+    }
+
+    /// Change the OCR language for subsequent loads.
+    ///
+    /// Takes effect on the next `load_file` (jobs already in flight keep the
+    /// language they started with).
+    pub fn set_ocr_lang(&self, lang: String) {
+        *self.ocr_lang.borrow_mut() = lang;
     }
 
     /// Register a callback fired whenever a file finishes loading (or fails).
