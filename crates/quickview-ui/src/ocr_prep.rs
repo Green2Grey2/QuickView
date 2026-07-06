@@ -4,14 +4,12 @@
 //! temporary image. The pixels come from the already-decoded `gdk::Texture`
 //! — never from re-decoding the untrusted file in-process, which would
 //! bypass the glycin sandbox (NFR-002) and miss formats gdk-pixbuf has no
-//! loader for. Split across threads:
+//! loader for.
 //!
-//! - [`download_rgba`] runs on the **main thread**: GL/dmabuf-backed texture
-//!   downloads are not reliably thread-safe before GTK 4.12. It is a bounded
-//!   memcpy, paid only for oversized images.
-//! - [`write_downscaled_png`] runs on the OCR worker thread: scales the
-//!   (trusted, self-produced) RGBA buffer with gdk-pixbuf and encodes it to
-//!   a private temp PNG for tesseract.
+//! Everything here runs on the OCR worker thread, only after the cache
+//! misses: GdkTexture is immutable and threadsafe, and both decode backends
+//! (glycin, GDK fallback) produce memory textures whose download is a plain
+//! copy with no GL involvement.
 
 use std::path::PathBuf;
 
@@ -32,7 +30,7 @@ pub struct RgbaPixels {
     stride: i32,
 }
 
-/// Download `texture` as unpremultiplied RGBA. Main thread only.
+/// Download `texture` as unpremultiplied RGBA.
 pub fn download_rgba(texture: &gdk::Texture) -> Result<RgbaPixels> {
     let width = texture.width();
     let height = texture.height();

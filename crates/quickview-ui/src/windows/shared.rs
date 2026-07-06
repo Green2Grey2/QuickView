@@ -204,18 +204,7 @@ impl ViewerController {
                     }
                     (after == stamp).then_some(stamp)
                 };
-                // Let the freshly set texture reach the screen before OCR
-                // prep: an oversized image's pixel download blocks the main
-                // thread, and glib's default-idle priority runs after GTK's
-                // redraw, so the first paint isn't hitched by its own OCR.
-                let this = self.clone();
-                glib::idle_add_local_once(move || {
-                    if job_id != this.decode_job_id.get() {
-                        // Superseded while waiting for the idle slot.
-                        return;
-                    }
-                    this.start_ocr(path, &texture, stamp);
-                });
+                self.start_ocr(path, &texture, stamp);
             }
             Err(err) => {
                 tracing::error!("Failed to load image: {err:#}");
@@ -279,10 +268,9 @@ impl ViewerController {
         let ocr_opts = self.ocr.borrow().clone();
 
         // Max-dimension guardrail: oversized images are fed to tesseract as
-        // a downscaled temp copy. The plan is pure math; the pixel download
-        // must happen here on the main thread (see ocr_prep), and any prep
-        // failure degrades to full-resolution OCR — the guardrail is a
-        // performance measure, not a correctness one.
+        // a downscaled temp copy made from the decoded texture (see
+        // ocr_prep). Any prep failure degrades to full-resolution OCR — the
+        // guardrail is a performance measure, not a correctness one.
         let plan = downscale::plan_downscale(
             texture.width().max(0) as u32,
             texture.height().max(0) as u32,
@@ -290,35 +278,18 @@ impl ViewerController {
         );
 
         // The cache key uses the *planned* downscale target — the size the
-        // guardrail intends tesseract to see. Deriving the entry up front
-        // (still before OCR runs, so the mid-edit snapshot semantics below
-        // are unchanged) lets an existing entry skip the expensive
-        // main-thread texture download entirely; the entry-path stat is the
-        // same cheap metadata I/O load_file already does on this thread.
-        // Degraded runs (failed download or scale) store their
+        // guardrail intends tesseract to see — so it is derivable before any
+        // pixels are prepared, and a cache hit never touches the pixels at
+        // all. Degraded runs (failed download or scale) store their
         // full-resolution result under the same planned key: strictly better
-        // content, and future opens then hit it without downloading either.
+        // content, and future opens then hit it like any other entry.
         let downscale_target = plan.map(|p| (p.target_w, p.target_h));
-        // No stamp (file changed during decode) means no entry: neither the
-        // probe below nor the worker's load/store touch the cache this load.
+        // No stamp (file changed during decode) means no entry: the worker
+        // neither reads nor writes the cache for this load.
         let entry = stamp.and_then(|stamp| {
             cache::cache_dir()
                 .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target, stamp))
         });
-        let probably_cached = entry.as_deref().is_some_and(|e| e.exists());
-
-        let prep_started = std::time::Instant::now();
-        let prep = if probably_cached {
-            None
-        } else {
-            plan.and_then(|plan| match crate::ocr_prep::download_rgba(texture) {
-                Ok(pixels) => Some((pixels, plan)),
-                Err(err) => {
-                    tracing::warn!("texture download failed; OCR at full resolution: {err:#}");
-                    None
-                }
-            })
-        };
 
         let (sender, receiver) = async_channel::bounded::<(
             u64,
@@ -329,11 +300,14 @@ impl ViewerController {
         let new_id = self.ocr_job_id.get().wrapping_add(1);
         self.ocr_job_id.set(new_id);
 
-        // Cache reads and writes stay on the worker thread; hits flow through
-        // the same channel as fresh results, so the job-id guard applies
-        // unchanged. (The main thread only stat()ed the entry path above; the
-        // authoritative read is here, and its miss path copes without pixels
-        // by falling back to full resolution.)
+        // All cache I/O and all pixel work stays on the worker thread; hits
+        // flow through the same channel as fresh results, so the job-id
+        // guard applies unchanged. The texture travels with the closure:
+        // GdkTexture is immutable and threadsafe (decode.rs already sends
+        // textures across threads), so the download happens only after the
+        // authoritative cache read misses — never for a hit, and never on
+        // the main thread.
+        let texture = texture.clone();
         std::thread::spawn(move || {
             let r = (|| {
                 // The entry was snapshotted before OCR runs: if the file is
@@ -346,14 +320,17 @@ impl ViewerController {
 
                 // Materialize the downscaled copy (cache misses only — a hit
                 // never needs the pixels). The temp file guard must outlive
-                // the tesseract run; drop deletes it on every path. A write
+                // the tesseract run; drop deletes it on every path. A prep
                 // failure degrades to full resolution, which stores a
                 // (strictly better) full-res result under the downscaled key.
                 let mut ocr_input = path.clone();
                 let mut tmp_guard = None;
                 let mut factors = None;
-                if let Some((pixels, plan)) = &prep {
-                    match crate::ocr_prep::write_downscaled_png(pixels, plan) {
+                if let Some(plan) = &plan {
+                    let prep_started = std::time::Instant::now();
+                    let downscaled = crate::ocr_prep::download_rgba(&texture)
+                        .and_then(|pixels| crate::ocr_prep::write_downscaled_png(&pixels, plan));
+                    match downscaled {
                         Ok(downscaled) => {
                             tracing::debug!(
                                 target: "quickview::perf",
