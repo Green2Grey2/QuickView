@@ -98,7 +98,9 @@ fn dispatch(app: &adw::Application, state: &Rc<AppState>, opts: &LaunchOptions) 
                     // Same file again: the launch keybind acts as a toggle.
                     window.close();
                 } else {
-                    // Explicit request for a different file: show it.
+                    // Explicit request for a different file: show it, with
+                    // the language this invocation asked for.
+                    controller.set_ocr_lang(opts.ocr_lang.clone());
                     controller.load_file(&opts.file);
                     window.present();
                 }
