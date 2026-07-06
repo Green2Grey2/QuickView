@@ -57,6 +57,11 @@ The implementation went **straight to on-disk**, revising the decision above:
   (Phase 7 hardening: psm/oem, tessdata_fast/best), they must join the key.**
 - Writes are atomic (temp file + rename in the same directory): concurrent
   QuickView processes are a designed use case.
+- Entries are created `0600` in `0700` directories — they hold recognized
+  text from the user's images, so they must not rely on the home directory
+  for privacy. Modes apply at creation only: entries written by builds
+  predating this (or a pre-existing lax cache dir) keep their old modes;
+  clearing `~/.cache/quickview/ocr` resets everything.
 - Empty results are cached (text-free images shouldn't re-run tesseract);
   failures are not cached, so transient errors retry on the next open. A
   failed cache write is a warning, never a failed OCR.

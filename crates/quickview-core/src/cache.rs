@@ -66,11 +66,22 @@ pub fn load_ocr(entry: &Path) -> Option<OcrResult> {
 /// The write is atomic (unique temp file + rename in the same directory):
 /// concurrent QuickView processes are a designed use case (Quick Preview
 /// spawns one per invocation), so a torn write must never be readable.
+///
+/// Entries are created 0600 in 0700 directories: they hold recognized text
+/// from the user's images (screenshots often contain emails, tokens,
+/// passwords), so they must not rely on the home directory for privacy.
+/// Modes apply at creation only; pre-existing entries/dirs keep theirs.
 pub fn store_ocr(entry: &Path, result: &OcrResult) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
     let dir = entry
         .parent()
         .ok_or_else(|| anyhow::anyhow!("cache path has no parent: {}", entry.display()))?;
-    std::fs::create_dir_all(dir)?;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
 
     let json = serde_json::to_vec(result)?;
     // pid + per-process counter: unique even across concurrent same-key
@@ -78,7 +89,14 @@ pub fn store_ocr(entry: &Path, result: &OcrResult) -> anyhow::Result<()> {
     static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = entry.with_extension(format!("json.tmp-{}-{seq}", std::process::id()));
-    if let Err(err) = std::fs::write(&tmp, &json) {
+    // The rename preserves the temp file's 0600 mode on the final entry.
+    let write_result = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(&json));
+    if let Err(err) = write_result {
         // A partial write (e.g. disk full) may have created the file; there
         // is no eviction pass in v1 to sweep it up later.
         let _ = std::fs::remove_file(&tmp);
@@ -173,6 +191,12 @@ mod tests {
         assert_eq!(loaded.words[0].text, "hello");
         assert_eq!(loaded.words[0].bbox, result.words[0].bbox);
         assert_eq!(loaded.words[0].order, 0);
+
+        // Entry and its directory are private (0600 / 0700).
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&entry), 0o600);
+        assert_eq!(mode(entry.parent().unwrap()), 0o700);
 
         // No stray temp file left behind.
         let ocr_dir = dir.path().join("ocr");
