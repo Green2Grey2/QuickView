@@ -34,6 +34,7 @@ Optional:
 - `csv` (TSV parsing)
 - `blake3` (cache key hashing)
 - `serde` (OCR model serialization)
+- `serde_json` (on-disk OCR cache entries)
 - `directories` (platform cache/config paths)
 
 ## Updating crates

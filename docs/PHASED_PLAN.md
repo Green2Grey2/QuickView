@@ -157,7 +157,11 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
   - previous image stays visible (under the busy spinner) until decode completes ✅
   - stale-result guard (monotonic job ID, same pattern as OCR) so fast
     arrow-key navigation cannot race decodes ✅
-- Add cache (in-memory first; `cache.rs` on-disk key derivation exists but is unwired)
+- Add cache ✅ — on-disk OCR cache (revising ADR-0009's "in-memory first"; see
+  its implementation notes): blake3 key of path+lang+mtime+size → JSON under
+  `~/.cache/quickview/ocr/`, checked/written on the OCR worker thread, atomic
+  writes, no eviction in v1. Survives restarts, so Quick Preview's
+  process-per-invocation benefits too.
 - Add basic benchmarking hooks (decode + OCR timing)
 - Improve OCR accuracy options:
   - language selection via config file / env var (CLI `--lang` already exists)

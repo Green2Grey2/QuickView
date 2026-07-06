@@ -51,13 +51,14 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Full Viewer window (headerbar, arrow key navigation)
 - File info in the headerbar (filename, dimensions, file size)
 - Async OCR (Tesseract TSV → word bounding boxes)
+- On-disk OCR cache (`~/.cache/quickview/ocr/`, keyed by path+lang+mtime+size;
+  no eviction in v1 — see ADR-0009 implementation notes)
 - Drag-select overlay with word highlighting
 - Ctrl+C clipboard copy and right-click context menu (Copy / Copy All Text)
 - Stale decode and OCR result cancellation via monotonic job IDs
 - Zoom & pan (Ctrl+scroll, pinch, +/- keys, middle-drag pan) via custom `ZoomableCanvas` widget
 
 ### What's not implemented yet:
-- OCR caching (cache module exists but is not wired up)
 - Quick Preview click-outside-to-close and single-instance toggle
 - Performance benchmarks
 
