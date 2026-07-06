@@ -85,6 +85,10 @@ impl ImageOverlayWidget {
         self.canvas.copy_selection_to_clipboard();
     }
 
+    pub fn open_context_menu(&self) {
+        self.canvas.open_context_menu();
+    }
+
     pub fn zoom_by(&self, factor: f64) {
         self.canvas.zoom_by(factor);
     }
@@ -252,6 +256,23 @@ mod imp {
         pub(super) pinch_anchor_widget: Point,
     }
 
+    impl CanvasState {
+        /// Reset OCR, selection, zoom/center, and gesture state.
+        ///
+        /// Shared by `set_texture` / `clear_texture`; callers set the
+        /// texture, dimensions, and center themselves.
+        pub(super) fn reset_view_state(&mut self) {
+            self.ocr = None;
+            self.ocr_index = None;
+            self.selected_indices.clear();
+            self.zoom_factor = MIN_ZOOM_FACTOR;
+            self.center_img = Point::default();
+            self.selecting = false;
+            self.panning = false;
+            self.pinch_active = false;
+        }
+    }
+
     impl Default for CanvasState {
         fn default() -> Self {
             Self {
@@ -298,20 +319,14 @@ impl ZoomableCanvas {
 
     pub fn set_texture(&self, texture: gtk::gdk::Texture) {
         let mut state = self.imp().state.borrow_mut();
+        state.reset_view_state();
         state.texture = Some(texture.clone());
         state.image_width = texture.width() as f64;
         state.image_height = texture.height() as f64;
-        state.ocr = None;
-        state.ocr_index = None;
-        state.zoom_factor = MIN_ZOOM_FACTOR;
         state.center_img = Point {
             x: state.image_width * 0.5,
             y: state.image_height * 0.5,
         };
-        state.selecting = false;
-        state.panning = false;
-        state.pinch_active = false;
-        state.selected_indices.clear();
         drop(state);
         self.queue_draw();
         self.update_cursor();
@@ -320,17 +335,10 @@ impl ZoomableCanvas {
 
     pub fn clear_texture(&self) {
         let mut state = self.imp().state.borrow_mut();
+        state.reset_view_state();
         state.texture = None;
         state.image_width = 0.0;
         state.image_height = 0.0;
-        state.ocr = None;
-        state.ocr_index = None;
-        state.zoom_factor = MIN_ZOOM_FACTOR;
-        state.center_img = Point::default();
-        state.selecting = false;
-        state.panning = false;
-        state.pinch_active = false;
-        state.selected_indices.clear();
         drop(state);
         self.queue_draw();
         self.update_cursor();
@@ -639,6 +647,7 @@ impl ZoomableCanvas {
         drop(state);
         if needs_redraw {
             self.queue_draw();
+            self.update_copy_actions();
         }
     }
 
@@ -823,6 +832,13 @@ impl ZoomableCanvas {
         drop(state);
         self.queue_draw();
         self.update_cursor();
+    }
+
+    /// Open the context menu from the keyboard (Menu key / Shift+F10),
+    /// anchored at the pointer if known, otherwise the widget center.
+    pub fn open_context_menu(&self) {
+        let anchor = self.last_cursor_widget();
+        self.show_context_menu(anchor.x, anchor.y);
     }
 
     fn show_context_menu(&self, x: f64, y: f64) {

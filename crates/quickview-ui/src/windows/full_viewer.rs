@@ -49,6 +49,12 @@ pub fn present(app: &adw::Application, opts: &LaunchOptions) {
                 return glib::Propagation::Stop;
             }
 
+            let is_shift = state.contains(gtk::gdk::ModifierType::SHIFT_MASK);
+            if key == gtk::gdk::Key::Menu || (is_shift && key == gtk::gdk::Key::F10) {
+                overlay.open_context_menu();
+                return glib::Propagation::Stop;
+            }
+
             if key == gtk::gdk::Key::plus
                 || key == gtk::gdk::Key::equal
                 || key == gtk::gdk::Key::KP_Add
