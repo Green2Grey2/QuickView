@@ -60,6 +60,10 @@ impl ImageOverlayWidget {
         self.canvas.set_texture(texture);
     }
 
+    pub fn clear_texture(&self) {
+        self.canvas.clear_texture();
+    }
+
     pub fn set_ocr_result(&self, result: Option<OcrResult>) {
         self.canvas.set_ocr_result(result);
     }
@@ -141,6 +145,17 @@ mod imp {
     }
 
     impl WidgetImpl for ZoomableCanvas {
+        fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+            self.parent_size_allocate(width, height, baseline);
+
+            // Custom widgets must present popover children during allocation;
+            // without this the context menu can end up unallocated or stuck at
+            // a stale position after resizes.
+            if let Some(popover) = self.context_menu.borrow().as_ref() {
+                popover.present();
+            }
+        }
+
         fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
             let state = self.state.borrow();
             let natural = natural_size_for_measure(
@@ -293,6 +308,25 @@ impl ZoomableCanvas {
             x: state.image_width * 0.5,
             y: state.image_height * 0.5,
         };
+        state.selecting = false;
+        state.panning = false;
+        state.pinch_active = false;
+        state.selected_indices.clear();
+        drop(state);
+        self.queue_draw();
+        self.update_cursor();
+        self.update_copy_actions();
+    }
+
+    pub fn clear_texture(&self) {
+        let mut state = self.imp().state.borrow_mut();
+        state.texture = None;
+        state.image_width = 0.0;
+        state.image_height = 0.0;
+        state.ocr = None;
+        state.ocr_index = None;
+        state.zoom_factor = MIN_ZOOM_FACTOR;
+        state.center_img = Point::default();
         state.selecting = false;
         state.panning = false;
         state.pinch_active = false;

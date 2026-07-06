@@ -126,8 +126,9 @@ impl ViewerController {
             }
             Err(err) => {
                 tracing::error!("Failed to load image: {err}");
-                // Clear OCR state.
-                self.overlay.set_ocr_result(None);
+                // Clear the stale image (and its OCR state) so the canvas
+                // matches the load_failed info shown in the headerbar.
+                self.overlay.clear_texture();
                 self.overlay.set_ocr_busy(false);
                 self.emit_file_loaded(FileInfo {
                     name,
