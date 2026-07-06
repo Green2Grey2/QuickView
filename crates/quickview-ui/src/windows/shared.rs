@@ -41,7 +41,8 @@ pub struct ViewerController {
 
     ocr_lang: Rc<RefCell<String>>,
 
-    // Monotonic id to ignore late OCR results.
+    // Monotonic ids to ignore late results from superseded jobs.
+    decode_job_id: Rc<Cell<u64>>,
     ocr_job_id: Rc<Cell<u64>>,
 
     on_file_loaded: Rc<RefCell<Option<FileLoadedCallback>>>,
@@ -61,6 +62,7 @@ impl ViewerController {
             dir_images: Rc::new(RefCell::new(dir_images)),
             dir_index: Rc::new(Cell::new(dir_index)),
             ocr_lang: Rc::new(RefCell::new(ocr_lang)),
+            decode_job_id: Rc::new(Cell::new(0)),
             ocr_job_id: Rc::new(Cell::new(0)),
             on_file_loaded: Rc::new(RefCell::new(None)),
             last_file_info: Rc::new(RefCell::new(None)),
@@ -110,9 +112,41 @@ impl ViewerController {
             .unwrap_or_else(|| path.display().to_string());
         let size_bytes = std::fs::metadata(path).ok().map(|m| m.len());
 
-        // Load image synchronously for now.
-        let file = gtk::gio::File::for_path(path);
-        match gtk::gdk::Texture::from_file(&file) {
+        // Supersede any in-flight decode.
+        let decode_id = self.decode_job_id.get().wrapping_add(1);
+        self.decode_job_id.set(decode_id);
+        // Also invalidate any in-flight OCR from the previous image: its late
+        // result would otherwise clear the busy spinner mid-decode (and, on a
+        // failed load, repopulate the cleared canvas).
+        self.ocr_job_id.set(self.ocr_job_id.get().wrapping_add(1));
+
+        // The previous image stays visible under the busy spinner until the
+        // decode finishes; the spinner then carries through into OCR.
+        self.overlay.set_ocr_busy(true);
+
+        let this = self.clone();
+        let path = path.to_path_buf();
+        glib::MainContext::default().spawn_local(async move {
+            let result = crate::decode::decode_texture(&path).await;
+            this.finish_decode(decode_id, path, name, size_bytes, result);
+        });
+    }
+
+    /// Apply a finished decode, unless a newer `load_file` superseded it.
+    fn finish_decode(
+        &self,
+        job_id: u64,
+        path: PathBuf,
+        name: String,
+        size_bytes: Option<u64>,
+        result: anyhow::Result<gtk::gdk::Texture>,
+    ) {
+        if job_id != self.decode_job_id.get() {
+            // Late result for a file the user already navigated away from.
+            return;
+        }
+
+        match result {
             Ok(texture) => {
                 let info = FileInfo {
                     name,
@@ -123,12 +157,10 @@ impl ViewerController {
                 };
                 self.overlay.set_texture(texture);
                 self.emit_file_loaded(info);
+                self.start_ocr(path);
             }
             Err(err) => {
-                tracing::error!("Failed to load image: {err}");
-                // Invalidate any in-flight OCR job from the previous image so
-                // a late result can't repopulate the cleared canvas.
-                self.ocr_job_id.set(self.ocr_job_id.get().wrapping_add(1));
+                tracing::error!("Failed to load image: {err:#}");
                 // Clear the stale image (and its OCR state) so the canvas
                 // matches the load_failed info shown in the headerbar.
                 self.overlay.clear_texture();
@@ -140,11 +172,8 @@ impl ViewerController {
                     size_bytes,
                     load_failed: true,
                 });
-                return;
             }
         }
-
-        self.start_ocr(path.to_path_buf());
     }
 
     pub fn next_image(&self) {

@@ -13,13 +13,16 @@ depends=(
   "libadwaita"
   "tesseract"
   "gtk4-layer-shell"
+  # linked by the glycin client crate (sandbox seccomp filter, ICC, fonts)
+  "libseccomp"
+  "lcms2"
+  "fontconfig"
 )
 
 optdepends=(
   "tesseract-data-eng: English OCR"
   "wl-clipboard: CLI clipboard fallback (wl-copy/wl-paste)"
-  "glycin: sandboxed image decoding (optional feature)"
-  "glycin-gtk4: glycin → GDK texture conversion"
+  "glycin: sandboxed image decoding (recommended; runtime-detected, falls back to in-process GDK decoding)"
 )
 
 makedepends=(

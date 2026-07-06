@@ -44,19 +44,21 @@ assets/               .desktop file, icons, AppStream metainfo
 The scaffold is functional with image display, async OCR pipeline, drag-select overlay, quick preview mode, and directory navigation. See `docs/PHASED_PLAN.md` for what's done and what's next.
 
 ### What works:
-- Image loading and display (GdkTexture)
+- Async, sandboxed image loading (glycin loader process when installed,
+  runtime-probed once per session; in-process GDK decoding on a worker thread
+  otherwise — fallback is session-wide only, never per-file)
 - Quick Preview window (borderless, layer-shell, Space/Esc dismiss)
 - Full Viewer window (headerbar, arrow key navigation)
+- File info in the headerbar (filename, dimensions, file size)
 - Async OCR (Tesseract TSV → word bounding boxes)
 - Drag-select overlay with word highlighting
-- Ctrl+C clipboard copy
-- Stale OCR result cancellation via monotonic job IDs
+- Ctrl+C clipboard copy and right-click context menu (Copy / Copy All Text)
+- Stale decode and OCR result cancellation via monotonic job IDs
 - Zoom & pan (Ctrl+scroll, pinch, +/- keys, middle-drag pan) via custom `ZoomableCanvas` widget
 
 ### What's not implemented yet:
-- Info panel (filename, dimensions, file size)
-- Context menu (right-click copy)
 - OCR caching (cache module exists but is not wired up)
+- Quick Preview click-outside-to-close and single-instance toggle
 - Performance benchmarks
 
 ## Development

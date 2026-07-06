@@ -5,11 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[features]
-# Optional safer image decoding path.
-# Disabled by default in this scaffold to keep builds simple.
-glycin = ["dep:glycin"]
-
 [dependencies]
 anyhow.workspace = true
 tracing.workspace = true
@@ -23,5 +18,7 @@ gtk4-layer-shell = "0.7"
 glib = "0.21"
 async-channel = "2"
 
-# Optional: sandboxed image decoding (requires system glycin libs)
-glycin = { version = "3", optional = true }
+# Sandboxed image decoding. Always compiled; whether it is used is decided at
+# runtime by probing installed loaders. Links libseccomp, lcms2, and
+# fontconfig (see docs/DEPENDENCIES.md).
+glycin = { version = "3", features = ["gdk4"] }

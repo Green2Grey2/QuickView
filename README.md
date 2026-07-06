@@ -48,12 +48,13 @@ sudo pacman -S --needed \
   base-devel rustup pkgconf \
   gtk4 libadwaita \
   tesseract tesseract-data-eng \
-  gtk4-layer-shell
+  gtk4-layer-shell \
+  libseccomp lcms2 fontconfig
 ```
 
 Optional:
 - `wl-clipboard` — CLI clipboard fallback
-- `glycin` — sandboxed image decoding (future)
+- `glycin` — sandboxed image decoding (recommended; detected at runtime, QuickView falls back to in-process GDK decoding without it)
 
 > `gtk4-layer-shell` provides true overlay behavior on wlroots compositors. On GNOME/Mutter, Quick Preview falls back to an undecorated window.
 

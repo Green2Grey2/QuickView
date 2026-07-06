@@ -11,6 +11,26 @@
   ],
   "modules": [
     {
+      "name": "glycin-loaders",
+      "buildsystem": "meson",
+      "config-opts": [
+        "-Dglycin-loaders=true",
+        "-Dglycin-thumbnailer=false",
+        "-Dlibglycin=false",
+        "-Dlibglycin-gtk4=false",
+        "-Dintrospection=false",
+        "-Dvapi=false",
+        "-Dtests=false"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://download.gnome.org/sources/glycin/2.1/glycin-2.1.5.tar.xz",
+          "sha256": "6c09757ee906330a60b6705753aa56bca007ad219b95e6e3537510d41bc341c8"
+        }
+      ]
+    },
+    {
       "name": "quickview",
       "buildsystem": "simple",
       "build-commands": [

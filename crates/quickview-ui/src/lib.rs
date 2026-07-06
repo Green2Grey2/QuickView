@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use adw::prelude::*;
 
+mod decode;
 pub mod widgets;
 pub mod windows;
 
