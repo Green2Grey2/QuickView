@@ -87,8 +87,24 @@ fn resolve_ocr_options(
     let env_lang = std::env::var("QUICKVIEW_LANG").ok();
     quickview_core::ocr::tesseract::OcrOptions {
         lang: config::resolve_lang(cli_lang.as_deref(), env_lang.as_deref(), &cfg),
-        tessdata_dir: cli_tessdata_dir.or_else(|| cfg.ocr.tessdata_dir.clone()),
+        tessdata_dir: cli_tessdata_dir
+            .or_else(|| cfg.ocr.tessdata_dir.clone())
+            .map(absolutize),
     }
+}
+
+/// Pin a possibly-relative path to this process's cwd.
+///
+/// Like the image path, the tessdata dir must be absolutized in the invoking
+/// process: with the single-instance app, OCR runs in the primary instance,
+/// whose cwd has nothing to do with this invocation's. Canonicalizing also
+/// resolves symlinks so one directory always hashes to one cache key; a
+/// nonexistent path is made absolute without touching the filesystem and
+/// fails later in tesseract with a clear error.
+fn absolutize(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path)
+        .or_else(|_| std::path::absolute(&path))
+        .unwrap_or(path)
 }
 
 fn resolve_input_path(arg: Option<String>) -> Result<PathBuf> {
@@ -135,5 +151,27 @@ mod tests {
     fn resolve_passes_missing_paths_through() {
         let p = resolve_input_path(Some("does-not-exist.png".into())).unwrap();
         assert_eq!(p, PathBuf::from("does-not-exist.png"));
+    }
+
+    #[test]
+    fn absolutize_resolves_existing_and_pins_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("tessdata");
+        std::fs::create_dir(&sub).unwrap();
+
+        // Existing: canonicalized (dot components resolved).
+        let dotted = dir.path().join(".").join("tessdata");
+        assert_eq!(absolutize(dotted), std::fs::canonicalize(&sub).unwrap());
+
+        // Missing: still made absolute against this process's cwd.
+        let missing = absolutize(PathBuf::from("no-such-tessdata"));
+        assert!(missing.is_absolute());
+        assert!(missing.ends_with("no-such-tessdata"));
+
+        // Already absolute + missing: unchanged.
+        assert_eq!(
+            absolutize(PathBuf::from("/nonexistent/tessdata")),
+            PathBuf::from("/nonexistent/tessdata")
+        );
     }
 }
