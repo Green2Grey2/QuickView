@@ -241,7 +241,7 @@ impl ViewerController {
 
         // Max-dimension guardrail: oversized images are fed to tesseract as
         // a downscaled temp copy. The plan is pure math; the pixel download
-        // must happen here on the main thread (see ocr_prep), and a download
+        // must happen here on the main thread (see ocr_prep), and any prep
         // failure degrades to full-resolution OCR — the guardrail is a
         // performance measure, not a correctness one.
         let plan = downscale::plan_downscale(
@@ -249,20 +249,33 @@ impl ViewerController {
             texture.height().max(0) as u32,
             self.max_ocr_dimension.get(),
         );
+
+        // The cache key uses the *planned* downscale target — the size the
+        // guardrail intends tesseract to see. Deriving the entry up front
+        // (still before OCR runs, so the mid-edit snapshot semantics below
+        // are unchanged) lets an existing entry skip the expensive
+        // main-thread texture download entirely; the entry-path stat is the
+        // same cheap metadata I/O load_file already does on this thread.
+        // Degraded runs (failed download or scale) store their
+        // full-resolution result under the same planned key: strictly better
+        // content, and future opens then hit it without downloading either.
+        let downscale_target = plan.map(|p| (p.target_w, p.target_h));
+        let entry = cache::cache_dir()
+            .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target));
+        let probably_cached = entry.as_deref().is_some_and(|e| e.exists());
+
         let prep_started = std::time::Instant::now();
-        let prep = plan.and_then(|plan| match crate::ocr_prep::download_rgba(texture) {
-            Ok(pixels) => Some((pixels, plan)),
-            Err(err) => {
-                tracing::warn!("texture download failed; OCR at full resolution: {err:#}");
-                None
-            }
-        });
-        // The effective size tesseract will see, for the cache key. Derived
-        // from the successful prep, not the plan: a failed prep runs at full
-        // resolution and must be keyed as such.
-        let downscale_target = prep
-            .as_ref()
-            .map(|(_, plan)| (plan.target_w, plan.target_h));
+        let prep = if probably_cached {
+            None
+        } else {
+            plan.and_then(|plan| match crate::ocr_prep::download_rgba(texture) {
+                Ok(pixels) => Some((pixels, plan)),
+                Err(err) => {
+                    tracing::warn!("texture download failed; OCR at full resolution: {err:#}");
+                    None
+                }
+            })
+        };
 
         let (sender, receiver) = async_channel::bounded::<(
             u64,
@@ -273,17 +286,16 @@ impl ViewerController {
         let new_id = self.ocr_job_id.get().wrapping_add(1);
         self.ocr_job_id.set(new_id);
 
-        // All cache I/O stays on the worker thread; hits flow through the same
-        // channel as fresh results, so the job-id guard applies unchanged.
-        let cache_root = cache::cache_dir();
+        // Cache reads and writes stay on the worker thread; hits flow through
+        // the same channel as fresh results, so the job-id guard applies
+        // unchanged. (The main thread only stat()ed the entry path above; the
+        // authoritative read is here, and its miss path copes without pixels
+        // by falling back to full resolution.)
         std::thread::spawn(move || {
             let r = (|| {
-                // Snapshot the cache key before OCR runs: if the file is
+                // The entry was snapshotted before OCR runs: if the file is
                 // edited mid-OCR, the stale result lands under the old key,
                 // which the edited file then correctly misses.
-                let entry = cache_root
-                    .as_deref()
-                    .map(|root| cache::ocr_cache_path(root, &path, &ocr_opts, downscale_target));
                 if let Some(cached) = entry.as_deref().and_then(cache::load_ocr) {
                     tracing::debug!("OCR cache hit for {}", path.display());
                     return Ok(cached);

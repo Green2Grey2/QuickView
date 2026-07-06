@@ -22,12 +22,14 @@ pub fn cache_dir() -> Option<PathBuf> {
 
 /// Compute the cache entry path for one OCR run.
 ///
-/// `downscale_target` is the *effective* image size tesseract will see:
-/// `None` for a full-resolution run, `Some((w, h))` when the max-dimension
-/// guardrail feeds it a downscaled copy. Hashing the effective target rather
-/// than the configured threshold keeps below-threshold images' entries valid
-/// across `max_dimension` edits — per ADR-0009, only inputs that change the
-/// recognition output join the key.
+/// `downscale_target` is the *planned* image size for tesseract: `None` for
+/// a full-resolution run, `Some((w, h))` when the max-dimension guardrail
+/// intends to feed it a downscaled copy. Hashing the target rather than the
+/// configured threshold keeps below-threshold images' entries valid across
+/// `max_dimension` edits — per ADR-0009, only inputs that change the
+/// recognition output join the key. (A degraded run that falls back to full
+/// resolution still stores under the planned key: strictly better content,
+/// and it lets future opens hit the cache without re-preparing pixels.)
 pub fn ocr_cache_path(
     cache_root: &Path,
     file: &Path,

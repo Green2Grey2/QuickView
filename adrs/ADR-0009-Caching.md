@@ -54,9 +54,11 @@ The implementation went **straight to on-disk**, revising the decision above:
   io.github.Green2Grey2.QuickView) did not move it on Linux.
 - Tesseract is invoked with no psm/oem flags, so the OCR settings in the key
   are `lang`, the optional `tessdata_dir` (presence marker keeps `None` and
-  empty distinct), and the **effective** downscale target (`full` or
+  empty distinct), and the **planned** downscale target (`full` or
   `WxH`) — the target rather than the configured `max_dimension` threshold,
-  so below-threshold images keep their entries across threshold edits. **The
+  so below-threshold images keep their entries across threshold edits, and
+  the entry path is derivable before any pixels are prepared (a cache probe
+  skips the texture download on reopens of oversized images). **The
   rule stands: any newly configurable OCR setting (psm/oem) must join the
   key.**
 - Writes are atomic (temp file + rename in the same directory): concurrent
