@@ -361,6 +361,21 @@ impl ViewerController {
                     downscaled = tmp_guard.is_some(),
                     "ocr"
                 );
+
+                // A full-resolution run had tesseract read the *live* file,
+                // which may have been replaced since the decode; a stamp
+                // mismatch means these words describe different bytes than
+                // the displayed texture (and than the entry's key), so the
+                // result is dropped — no overlay, nothing stored. Downscaled
+                // runs OCR the decoded pixels and are immune; a `None` stamp
+                // already bypasses the cache and stays best-effort.
+                if tmp_guard.is_none() {
+                    if let Some(stamp) = stamp {
+                        if cache::FileStamp::read(&path) != stamp {
+                            anyhow::bail!("file changed during OCR; discarding mismatched result");
+                        }
+                    }
+                }
                 drop(tmp_guard);
 
                 // Bboxes go back to original image space before caching and
