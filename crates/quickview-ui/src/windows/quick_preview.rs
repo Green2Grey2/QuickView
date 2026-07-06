@@ -71,13 +71,18 @@ pub fn present(
         // leaving no backdrop to click. set_size_request is only a minimum;
         // the clamps cap the maximum, so the panel is exactly
         // PANEL_WIDTH x PANEL_HEIGHT and the canvas letterboxes inside it.
+        // tightening_threshold == maximum_size: with the default (400) the
+        // clamp's own natural size eases out well past maximum to give the
+        // child a run-in, which the Overlay would happily allocate.
         let vclamp = adw::Clamp::builder()
             .maximum_size(PANEL_HEIGHT)
+            .tightening_threshold(PANEL_HEIGHT)
             .orientation(gtk::Orientation::Vertical)
             .child(&viewer.widget())
             .build();
         let hclamp = adw::Clamp::builder()
             .maximum_size(PANEL_WIDTH)
+            .tightening_threshold(PANEL_WIDTH)
             .child(&vclamp)
             .build();
 
