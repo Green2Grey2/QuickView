@@ -13,6 +13,10 @@ depends=(
   "libadwaita"
   "tesseract"
   "gtk4-layer-shell"
+  # linked by the glycin client crate (sandbox seccomp filter, ICC, fonts)
+  "libseccomp"
+  "lcms2"
+  "fontconfig"
 )
 
 optdepends=(

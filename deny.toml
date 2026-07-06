@@ -2,7 +2,13 @@
 # https://embarkstudios.github.io/cargo-deny/
 
 [advisories]
-ignore = []
+ignore = [
+    # `paste` (proc-macro, build-time only) is archived/unmaintained. It is a
+    # transitive dependency of glycin (via glycin-common/glycin-utils/gufo);
+    # no fixed release exists. Drop this once glycin's deps migrate to the
+    # `pastey` fork.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 allow = [

@@ -48,7 +48,8 @@ sudo pacman -S --needed \
   base-devel rustup pkgconf \
   gtk4 libadwaita \
   tesseract tesseract-data-eng \
-  gtk4-layer-shell
+  gtk4-layer-shell \
+  libseccomp lcms2 fontconfig
 ```
 
 Optional:

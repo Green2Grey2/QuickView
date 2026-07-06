@@ -22,10 +22,12 @@ Glycin decodes via sandboxed modular loaders, improving safety when handling unt
 
 ## Implementation notes (2026-07-05)
 
-- The `glycin` client crate is **always compiled** (pure Rust, no system build
-  deps); no cargo feature. Which backend is used is decided **at runtime** by
-  probing the installed loader configs once per session
-  (`quickview-ui/src/decode.rs`).
+- The `glycin` client crate is **always compiled**; no cargo feature. Which
+  backend is used is decided **at runtime** by probing the installed loader
+  configs once per session (`quickview-ui/src/decode.rs`). The client links
+  libseccomp, lcms2, and fontconfig — ubiquitous on any GTK-capable system,
+  and required at build time regardless of which backend runs (see
+  `docs/DEPENDENCIES.md`).
 - The GDK fallback is strictly **session-wide, never per-file**: a file glycin
   rejects is a failed load. Retrying it with the unsandboxed GDK decoder would
   let a crafted image reach the unsandboxed path simply by making the sandboxed

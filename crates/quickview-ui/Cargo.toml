@@ -18,6 +18,7 @@ gtk4-layer-shell = "0.7"
 glib = "0.21"
 async-channel = "2"
 
-# Sandboxed image decoding. Always compiled (pure Rust client, no system build
-# deps); whether it is used is decided at runtime by probing installed loaders.
+# Sandboxed image decoding. Always compiled; whether it is used is decided at
+# runtime by probing installed loaders. Links libseccomp, lcms2, and
+# fontconfig (see docs/DEPENDENCIES.md).
 glycin = { version = "3", features = ["gdk4"] }
