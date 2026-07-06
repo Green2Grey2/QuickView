@@ -318,15 +318,30 @@ impl ViewerController {
                     return Ok(cached);
                 }
 
-                // Materialize the downscaled copy (cache misses only — a hit
-                // never needs the pixels). The temp file guard must outlive
-                // the tesseract run; drop deletes it on every path. A prep
-                // failure degrades to full resolution, which stores a
-                // (strictly better) full-res result under the downscaled key.
+                // Materialize the temp copy tesseract will read (cache
+                // misses only — a hit never needs the pixels). The temp file
+                // guard must outlive the tesseract run; drop deletes it on
+                // every path.
+                //
+                // With an unknown stamp (the file changed during decode) the
+                // live path cannot be trusted to match the displayed texture,
+                // so the decoded pixels are the only safe OCR input: OCR them
+                // at original size (factor 1.0) and never fall back to the
+                // live file. With a known stamp, a prep failure degrades to
+                // full resolution, which stores a (strictly better) full-res
+                // result under the downscaled key.
+                let pixels_only = stamp.is_none();
+                let prep_plan = plan.or_else(|| {
+                    pixels_only.then(|| downscale::DownscalePlan {
+                        target_w: texture.width().max(1) as u32,
+                        target_h: texture.height().max(1) as u32,
+                        factor: 1.0,
+                    })
+                });
                 let mut ocr_input = path.clone();
                 let mut tmp_guard = None;
                 let mut factors = None;
-                if let Some(plan) = &plan {
+                if let Some(plan) = &prep_plan {
                     let prep_started = std::time::Instant::now();
                     let downscaled = crate::ocr_prep::download_rgba(&texture)
                         .and_then(|pixels| crate::ocr_prep::write_downscaled_png(&pixels, plan));
@@ -343,6 +358,11 @@ impl ViewerController {
                             ocr_input = downscaled.path().to_path_buf();
                             factors = Some((downscaled.factor_x, downscaled.factor_y));
                             tmp_guard = Some(downscaled);
+                        }
+                        Err(err) if pixels_only => {
+                            return Err(err.context(
+                                "cannot OCR from decoded pixels and the live file is untrusted",
+                            ));
                         }
                         Err(err) => {
                             tracing::warn!("downscale failed; OCR at full resolution: {err:#}");
@@ -366,9 +386,10 @@ impl ViewerController {
                 // which may have been replaced since the decode; a stamp
                 // mismatch means these words describe different bytes than
                 // the displayed texture (and than the entry's key), so the
-                // result is dropped — no overlay, nothing stored. Downscaled
-                // runs OCR the decoded pixels and are immune; a `None` stamp
-                // already bypasses the cache and stays best-effort.
+                // result is dropped — no overlay, nothing stored. Pixel-fed
+                // runs (downscaled, or pixels_only above) OCR the decoded
+                // texture and are immune, so only the stamped full-resolution
+                // path needs re-verification.
                 if tmp_guard.is_none() {
                     if let Some(stamp) = stamp {
                         if cache::FileStamp::read(&path) != stamp {
