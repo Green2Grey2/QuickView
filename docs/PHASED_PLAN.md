@@ -1,7 +1,7 @@
 # QuickView Phased Implementation Plan
 
-**Document version:** 0.1 (planning)  
-**Last updated:** 2026-03-02
+**Document version:** 0.2 (planning)  
+**Last updated:** 2026-07-05
 
 This plan is structured as incremental phases that each deliver a usable artifact.
 If priorities change, you can reshuffle phases, but try to keep the “render first, OCR later” principle intact.
@@ -45,7 +45,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 2 — Directory navigation + info panel (partially done)
+## Phase 2 — Directory navigation + info panel ✅
 
 **Core tasks**
 - Identify “image set” as all supported images in the same directory ✅
@@ -53,13 +53,15 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 - Add navigation:
   - Left/Right arrows to prev/next ✅
 - Add info panel:
-  - filename
-  - dimensions
-  - file size
+  - filename ✅
+  - dimensions ✅
+  - file size ✅
+  - (implemented as headerbar title/subtitle via `adw::WindowTitle` rather than
+    a separate panel — most idiomatic libadwaita for three fields)
 
 **Definition of done**
 - Prev/next navigation is correct and stable ✅
-- Info updates immediately when switching images
+- Info updates immediately when switching images ✅
 
 ---
 
@@ -98,7 +100,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 5 — OCR overlay + text selection UX (partially done)
+## Phase 5 — OCR overlay + text selection UX ✅
 
 **Core tasks**
 - Render OCR overlay (invisible by default or lightly highlighted on hover) ✅
@@ -107,7 +109,7 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
   - highlight matched words ✅
 - Implement copy:
   - Ctrl+C copies selected text ✅
-  - context menu action “Copy”
+  - context menu action “Copy” ✅ (plus “Copy All Text” for the whole OCR result)
 
 **Definition of done**
 - User can reliably select and copy text from an image ✅
@@ -115,34 +117,56 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 6 — Integration polish (not started)
+## Phase 6 — Integration polish (partially done)
 
 **Core tasks**
 - `.desktop` integration:
-  - default open handler for images
-  - optional action for quick preview mode
+  - default open handler for images ✅ (`assets/desktop/`, installed by PKGBUILD/Flatpak)
+  - optional action for quick preview mode ✅ (`QuickPreview` desktop action)
 - Compositor keybind recipes (niri, Hyprland, Sway) documented
+  (`templates/keybind-examples.md` exists but is generic — add per-compositor snippets)
+- Rename placeholder app ID `com.example.QuickView` before wider distribution
+  (touches app ID in `quickview-ui`, `.desktop`, metainfo, icon filename, Flatpak manifest, PKGBUILD)
+- Quick Preview dismissal completeness (FR-002):
+  - click outside closes — layer-shell path: anchor surface to all edges with a
+    transparent backdrop around the image; fallback path: `GestureClick` on the
+    window plus focus-loss handling
+  - single-instance toggle — `GApplication` uniqueness with `HANDLES_COMMAND_LINE`
+    (or `open`) so a second `--quick-preview` invocation reaches the running
+    instance and toggles/replaces the window instead of spawning a new process;
+    requires revisiting the current `run_with_args(&[])` workaround
 - Optional GNOME Sushi-compatible DBus interface (advanced / optional)
 
 **Definition of done**
 - App can be set as default image viewer in common file managers
 - Quick Preview can be triggered by a keybind in at least one compositor
+- Pressing the keybind while a preview is already open closes it (toggle)
 
 ---
 
 ## Phase 7 — Hardening + performance (not started)
 
 **Core tasks**
-- Add cache (in-memory first)
+- Async + sandboxed image loading — implements ADR-0004, fixes NFR-001/NFR-002.
+  Do this first: the cache DoD below is unverifiable while decode still blocks
+  the main thread.
+  - replace the synchronous `Texture::from_file` in `load_file` with glycin's
+    async loader where available (behind a cargo feature), falling back to GDK
+    decoding on a background thread via the existing async-channel pattern
+  - show the previous image or a placeholder until decode completes
+  - stale-result guard (monotonic job ID, same pattern as OCR) so fast
+    arrow-key navigation cannot race decodes
+- Add cache (in-memory first; `cache.rs` on-disk key derivation exists but is unwired)
 - Add basic benchmarking hooks (decode + OCR timing)
 - Improve OCR accuracy options:
-  - language selection
+  - language selection via config file / env var (CLI `--lang` already exists)
   - selectable `tessdata_fast` vs `tessdata_best`
 - Add guardrails:
   - maximum image dimensions for OCR (downscale)
   - memory usage limits (where feasible)
 
 **Definition of done**
+- Opening a large image does not freeze or hitch the UI
 - Re-opening the same image is faster due to caching
 - OCR is stable across a variety of real-world screenshots
 

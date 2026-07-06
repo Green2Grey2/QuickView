@@ -14,6 +14,23 @@ use quickview_core::{
 
 use crate::widgets::image_overlay::ImageOverlayWidget;
 
+/// Basic metadata about the currently displayed file, for the info display.
+#[derive(Debug, Clone)]
+pub struct FileInfo {
+    /// File name without the directory.
+    pub name: String,
+    /// Texture width in pixels (0 when `load_failed`).
+    pub width: i32,
+    /// Texture height in pixels (0 when `load_failed`).
+    pub height: i32,
+    /// File size in bytes; `None` if metadata could not be read.
+    pub size_bytes: Option<u64>,
+    /// True when the image could not be decoded.
+    pub load_failed: bool,
+}
+
+type FileLoadedCallback = Box<dyn Fn(&FileInfo)>;
+
 #[derive(Clone)]
 pub struct ViewerController {
     overlay: ImageOverlayWidget,
@@ -26,6 +43,9 @@ pub struct ViewerController {
 
     // Monotonic id to ignore late OCR results.
     ocr_job_id: Rc<Cell<u64>>,
+
+    on_file_loaded: Rc<RefCell<Option<FileLoadedCallback>>>,
+    last_file_info: Rc<RefCell<Option<FileInfo>>>,
 }
 
 impl ViewerController {
@@ -42,6 +62,8 @@ impl ViewerController {
             dir_index: Rc::new(Cell::new(dir_index)),
             ocr_lang: Rc::new(RefCell::new(ocr_lang)),
             ocr_job_id: Rc::new(Cell::new(0)),
+            on_file_loaded: Rc::new(RefCell::new(None)),
+            last_file_info: Rc::new(RefCell::new(None)),
         };
 
         this.load_file(&initial_file);
@@ -61,20 +83,63 @@ impl ViewerController {
         self.current_file.borrow().clone()
     }
 
+    /// Register a callback fired whenever a file finishes loading (or fails).
+    ///
+    /// If a file has already been loaded, the callback is invoked immediately
+    /// with its info so late registration (e.g. after `new()`) misses nothing.
+    pub fn connect_file_loaded(&self, f: impl Fn(&FileInfo) + 'static) {
+        if let Some(info) = self.last_file_info.borrow().as_ref() {
+            f(info);
+        }
+        *self.on_file_loaded.borrow_mut() = Some(Box::new(f));
+    }
+
+    fn emit_file_loaded(&self, info: FileInfo) {
+        if let Some(cb) = self.on_file_loaded.borrow().as_ref() {
+            cb(&info);
+        }
+        *self.last_file_info.borrow_mut() = Some(info);
+    }
+
     pub fn load_file(&self, path: &Path) {
         *self.current_file.borrow_mut() = path.to_path_buf();
+
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let size_bytes = std::fs::metadata(path).ok().map(|m| m.len());
 
         // Load image synchronously for now.
         let file = gtk::gio::File::for_path(path);
         match gtk::gdk::Texture::from_file(&file) {
             Ok(texture) => {
+                let info = FileInfo {
+                    name,
+                    width: texture.width(),
+                    height: texture.height(),
+                    size_bytes,
+                    load_failed: false,
+                };
                 self.overlay.set_texture(texture);
+                self.emit_file_loaded(info);
             }
             Err(err) => {
                 tracing::error!("Failed to load image: {err}");
-                // Clear OCR state.
-                self.overlay.set_ocr_result(None);
+                // Invalidate any in-flight OCR job from the previous image so
+                // a late result can't repopulate the cleared canvas.
+                self.ocr_job_id.set(self.ocr_job_id.get().wrapping_add(1));
+                // Clear the stale image (and its OCR state) so the canvas
+                // matches the load_failed info shown in the headerbar.
+                self.overlay.clear_texture();
                 self.overlay.set_ocr_busy(false);
+                self.emit_file_loaded(FileInfo {
+                    name,
+                    width: 0,
+                    height: 0,
+                    size_bytes,
+                    load_failed: true,
+                });
                 return;
             }
         }
@@ -111,12 +176,8 @@ impl ViewerController {
         self.load_file(&p);
     }
 
-    pub fn copy_selection_to_clipboard(&self, display: &gtk::gdk::Display) {
-        let text = self.overlay.selected_text();
-        if text.trim().is_empty() {
-            return;
-        }
-        display.clipboard().set_text(&text);
+    pub fn copy_selection_to_clipboard(&self) {
+        self.overlay.copy_selection_to_clipboard();
     }
 
     fn start_ocr(&self, path: PathBuf) {
