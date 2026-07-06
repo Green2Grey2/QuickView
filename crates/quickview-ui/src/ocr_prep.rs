@@ -34,15 +34,45 @@ pub struct RgbaPixels {
 
 /// Download `texture` as unpremultiplied RGBA. Main thread only.
 pub fn download_rgba(texture: &gdk::Texture) -> Result<RgbaPixels> {
+    let width = texture.width();
+    let height = texture.height();
+    let stride = usize::try_from(width)
+        .ok()
+        .and_then(|w| w.checked_mul(4))
+        .context("image width overflows RGBA stride")?;
+    let len = usize::try_from(height)
+        .ok()
+        .and_then(|h| h.checked_mul(stride))
+        .context("image size overflows RGBA buffer")?;
+
+    // Checked allocation first: `download_bytes()` would g_malloc the same
+    // buffer and abort the whole process on OOM. A failed allocation must
+    // instead surface as an Err so the caller degrades to full-resolution
+    // OCR.
+    let mut buf: Vec<u8> = Vec::new();
+    buf.try_reserve_exact(len)
+        .with_context(|| format!("cannot allocate {len} bytes for the RGBA copy"))?;
+    buf.resize(len, 0);
+
     let mut downloader = gdk::TextureDownloader::new(texture);
     downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
-    let (bytes, stride) = downloader.download_bytes();
-    let stride = i32::try_from(stride).context("texture stride exceeds i32")?;
+    // SAFETY: gdk4-rs 0.10 does not bind download_into (only the aborting
+    // download_bytes). The buffer is exactly `stride * height` bytes with
+    // `stride == width * 4`, which is what an R8g8b8a8 download writes, and
+    // the downloader stays alive for the duration of the call.
+    unsafe {
+        let ptr: *const gdk::ffi::GdkTextureDownloader = glib::translate::ToGlibPtr::<
+            *const gdk::ffi::GdkTextureDownloader,
+        >::to_glib_none(&downloader)
+        .0;
+        gdk::ffi::gdk_texture_downloader_download_into(ptr, buf.as_mut_ptr(), stride);
+    }
+
     Ok(RgbaPixels {
-        bytes,
-        width: texture.width(),
-        height: texture.height(),
-        stride,
+        bytes: glib::Bytes::from_owned(buf),
+        width,
+        height,
+        stride: i32::try_from(stride).context("texture stride exceeds i32")?,
     })
 }
 
