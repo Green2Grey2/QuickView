@@ -9,7 +9,7 @@ use gtk4 as gtk;
 
 use quickview_core::{
     cache, fs,
-    ocr::{tesseract, tsv},
+    ocr::{tesseract, tesseract::OcrOptions, tsv},
 };
 
 use crate::widgets::image_overlay::ImageOverlayWidget;
@@ -39,7 +39,7 @@ pub struct ViewerController {
     dir_images: Rc<RefCell<Vec<PathBuf>>>,
     dir_index: Rc<Cell<usize>>,
 
-    ocr_lang: Rc<RefCell<String>>,
+    ocr: Rc<RefCell<OcrOptions>>,
 
     // Monotonic ids to ignore late results from superseded jobs.
     decode_job_id: Rc<Cell<u64>>,
@@ -50,7 +50,7 @@ pub struct ViewerController {
 }
 
 impl ViewerController {
-    pub fn new(initial_file: PathBuf, ocr_lang: String) -> Self {
+    pub fn new(initial_file: PathBuf, ocr: OcrOptions) -> Self {
         let overlay = ImageOverlayWidget::new();
 
         let current_file = Rc::new(RefCell::new(initial_file.clone()));
@@ -61,7 +61,7 @@ impl ViewerController {
             current_file,
             dir_images: Rc::new(RefCell::new(dir_images)),
             dir_index: Rc::new(Cell::new(dir_index)),
-            ocr_lang: Rc::new(RefCell::new(ocr_lang)),
+            ocr: Rc::new(RefCell::new(ocr)),
             decode_job_id: Rc::new(Cell::new(0)),
             ocr_job_id: Rc::new(Cell::new(0)),
             on_file_loaded: Rc::new(RefCell::new(None)),
@@ -84,12 +84,12 @@ impl ViewerController {
         self.current_file.borrow().clone()
     }
 
-    /// Change the OCR language for subsequent loads.
+    /// Change the OCR settings for subsequent loads.
     ///
     /// Takes effect on the next `load_file` (jobs already in flight keep the
-    /// language they started with).
-    pub fn set_ocr_lang(&self, lang: String) {
-        *self.ocr_lang.borrow_mut() = lang;
+    /// settings they started with).
+    pub fn set_ocr_options(&self, ocr: OcrOptions) {
+        *self.ocr.borrow_mut() = ocr;
     }
 
     /// Register a callback fired whenever a file finishes loading (or fails).
@@ -220,7 +220,7 @@ impl ViewerController {
         self.overlay.set_ocr_busy(true);
         self.overlay.set_ocr_result(None);
 
-        let lang = self.ocr_lang.borrow().clone();
+        let ocr_opts = self.ocr.borrow().clone();
 
         let (sender, receiver) = async_channel::bounded::<(
             u64,
@@ -241,12 +241,12 @@ impl ViewerController {
                 // which the edited file then correctly misses.
                 let entry = cache_root
                     .as_deref()
-                    .map(|root| cache::ocr_cache_path(root, &path, &lang));
+                    .map(|root| cache::ocr_cache_path(root, &path, &ocr_opts));
                 if let Some(cached) = entry.as_deref().and_then(cache::load_ocr) {
                     tracing::debug!("OCR cache hit for {}", path.display());
                     return Ok(cached);
                 }
-                let tsv_out = tesseract::run_tesseract_tsv(&path, &lang)?;
+                let tsv_out = tesseract::run_tesseract_tsv(&path, &ocr_opts)?;
                 let parsed = tsv::parse_tesseract_tsv(&tsv_out)?;
                 // Empty results are cached too (text-free images shouldn't
                 // re-run tesseract); failures are not, so transient errors

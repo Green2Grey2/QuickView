@@ -1,30 +1,26 @@
 //! On-disk OCR result cache.
 //!
 //! Entries are JSON files under `<cache_root>/ocr/`, keyed by a blake3 hash of
-//! the image path, OCR language, and file mtime+size — so an edited file is
-//! simply a cache miss (no invalidation logic needed). There is no eviction in
+//! the image path, the OCR settings (language, tessdata dir), and file
+//! mtime+size — so an edited file is simply a cache miss (no invalidation
+//! logic needed). There is no eviction in
 //! v1: entries are a few KB each, and users can clear the directory manually.
 //! Phase 8's persistent SQLite cache is the planned successor (ADR-0009).
 
 use std::path::{Path, PathBuf};
 
-use directories::ProjectDirs;
-
-use crate::ocr::models::OcrResult;
+use crate::ocr::{models::OcrResult, tesseract::OcrOptions};
 
 /// Return the XDG cache directory for QuickView.
 ///
-/// On Linux this is typically: `~/.cache/quickview/`.
+/// On Linux this is typically: `~/.cache/quickview/` (derived from the
+/// lowercased app name, so the app-ID rename did not move it and pre-rename
+/// entries remain valid).
 pub fn cache_dir() -> Option<PathBuf> {
-    // qualifier, org, app — must stay in sync with the application ID
-    // io.github.Green2Grey2.QuickView. On Linux the path only uses the
-    // lowercased app name (~/.cache/quickview/), so renaming the ID did not
-    // move the cache and pre-rename entries remain valid.
-    let proj = ProjectDirs::from("io.github", "Green2Grey2", "QuickView")?;
-    Some(proj.cache_dir().to_path_buf())
+    Some(crate::config::project_dirs()?.cache_dir().to_path_buf())
 }
 
-pub fn ocr_cache_path(cache_root: &Path, file: &Path, lang: &str) -> PathBuf {
+pub fn ocr_cache_path(cache_root: &Path, file: &Path, opts: &OcrOptions) -> PathBuf {
     // Include file metadata to avoid stale caches. Full nanosecond mtime:
     // whole seconds would alias a same-second rewrite of the same path with
     // an unchanged byte length (rapid screenshot/editor saves).
@@ -40,7 +36,20 @@ pub fn ocr_cache_path(cache_root: &Path, file: &Path, lang: &str) -> PathBuf {
     let mut hasher = blake3::Hasher::new();
     hasher.update(file.as_os_str().as_encoded_bytes());
     hasher.update(b"\0");
-    hasher.update(lang.as_bytes());
+    hasher.update(opts.lang.as_bytes());
+    hasher.update(b"\0");
+    // Every OcrOptions field joins the key (ADR-0009): a different tessdata
+    // set produces different text. The presence marker keeps `None` distinct
+    // from `Some("")`.
+    match &opts.tessdata_dir {
+        Some(dir) => {
+            hasher.update(&[1]);
+            hasher.update(dir.as_os_str().as_encoded_bytes());
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
     hasher.update(b"\0");
     hasher.update(&mtime.to_le_bytes());
     hasher.update(&size.to_le_bytes());
@@ -134,6 +143,13 @@ mod tests {
         }
     }
 
+    fn eng() -> OcrOptions {
+        OcrOptions {
+            lang: "eng".into(),
+            tessdata_dir: None,
+        }
+    }
+
     #[test]
     fn key_changes_with_lang_path_and_metadata() {
         let dir = tempfile::tempdir().unwrap();
@@ -141,37 +157,41 @@ mod tests {
 
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let base = ocr_cache_path(root, &img, "eng");
+        let base = ocr_cache_path(root, &img, &eng());
 
         // Same inputs -> same key.
-        assert_eq!(base, ocr_cache_path(root, &img, "eng"));
+        assert_eq!(base, ocr_cache_path(root, &img, &eng()));
 
         // Different language -> different key.
-        assert_ne!(base, ocr_cache_path(root, &img, "deu"));
+        let deu = OcrOptions {
+            lang: "deu".into(),
+            ..eng()
+        };
+        assert_ne!(base, ocr_cache_path(root, &img, &deu));
 
         // Different path -> different key.
         let img2 = dir.path().join("b.png");
         std::fs::write(&img2, b"xx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img2, "eng"));
+        assert_ne!(base, ocr_cache_path(root, &img2, &eng()));
 
         // Different size -> different key.
         std::fs::write(&img, b"xxxx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img, "eng"));
+        assert_ne!(base, ocr_cache_path(root, &img, &eng()));
 
         // Different mtime (same size) -> different key.
         std::fs::write(&img, b"xx").unwrap();
-        let before = ocr_cache_path(root, &img, "eng");
+        let before = ocr_cache_path(root, &img, &eng());
         let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
         std::fs::File::open(&img)
             .unwrap()
             .set_modified(old)
             .unwrap();
-        assert_ne!(before, ocr_cache_path(root, &img, "eng"));
+        assert_ne!(before, ocr_cache_path(root, &img, &eng()));
 
         // Subsecond mtime change (same second, same size) -> different key.
         let with_key = |t| {
             std::fs::File::open(&img).unwrap().set_modified(t).unwrap();
-            ocr_cache_path(root, &img, "eng")
+            ocr_cache_path(root, &img, &eng())
         };
         assert_ne!(
             with_key(old + std::time::Duration::from_nanos(1)),
@@ -180,11 +200,41 @@ mod tests {
     }
 
     #[test]
+    fn key_changes_with_tessdata_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, b"xx").unwrap();
+
+        let with_dir = |d: Option<&str>| {
+            let opts = OcrOptions {
+                lang: "eng".into(),
+                tessdata_dir: d.map(PathBuf::from),
+            };
+            ocr_cache_path(root, &img, &opts)
+        };
+
+        // Some(dir) differs from None, and dirs differ from each other.
+        assert_ne!(with_dir(None), with_dir(Some("/opt/tessdata_fast")));
+        assert_ne!(
+            with_dir(Some("/opt/tessdata_fast")),
+            with_dir(Some("/opt/tessdata_best"))
+        );
+        // The presence marker keeps None distinct from Some("").
+        assert_ne!(with_dir(None), with_dir(Some("")));
+        // Same dir -> same key.
+        assert_eq!(
+            with_dir(Some("/opt/tessdata_fast")),
+            with_dir(Some("/opt/tessdata_fast"))
+        );
+    }
+
+    #[test]
     fn store_then_load_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let entry = ocr_cache_path(dir.path(), &img, "eng");
+        let entry = ocr_cache_path(dir.path(), &img, &eng());
 
         let result = sample_result();
         store_ocr(&entry, &result).unwrap();
@@ -217,7 +267,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, "eng");
+        let entry = ocr_cache_path(dir.path(), &img, &eng());
         assert!(load_ocr(&entry).is_none());
     }
 
@@ -227,7 +277,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, "eng");
+        let entry = ocr_cache_path(dir.path(), &img, &eng());
         std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
         std::fs::write(&entry, b"{not json").unwrap();
 

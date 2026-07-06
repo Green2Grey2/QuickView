@@ -27,7 +27,7 @@ pub fn present(
         .default_height(PANEL_HEIGHT)
         .build();
 
-    let viewer = ViewerController::new(opts.file.clone(), opts.ocr_lang.clone());
+    let viewer = ViewerController::new(opts.file.clone(), opts.ocr.clone());
 
     // Layer shell if supported.
     if gtk4_layer_shell::is_supported() {

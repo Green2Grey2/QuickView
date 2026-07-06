@@ -57,6 +57,10 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Full Viewer window (headerbar, arrow key navigation)
 - File info in the headerbar (filename, dimensions, file size)
 - Async OCR (Tesseract TSV → word bounding boxes)
+- OCR settings via `~/.config/quickview/config.toml` (`quickview-core`
+  `config.rs`): lang (precedence `--lang` > `QUICKVIEW_LANG` > config >
+  `eng`) and `tessdata_dir` (`--tessdata-dir` > config); both live in
+  `OcrOptions` and join the cache key
 - On-disk OCR cache (`~/.cache/quickview/ocr/`, keyed by path+lang+mtime+size;
   no eviction in v1 — see ADR-0009 implementation notes)
 - Drag-select overlay with word highlighting

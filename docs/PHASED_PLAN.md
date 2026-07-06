@@ -172,8 +172,13 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
   process-per-invocation benefits too.
 - Add basic benchmarking hooks (decode + OCR timing)
 - Improve OCR accuracy options:
-  - language selection via config file / env var (CLI `--lang` already exists)
-  - selectable `tessdata_fast` vs `tessdata_best`
+  - language selection via config file / env var ✅ — precedence
+    `--lang` > `QUICKVIEW_LANG` > `~/.config/quickview/config.toml` > `eng`
+    (`quickview-core/src/config.rs`; see `templates/config.example.toml`)
+  - selectable `tessdata_fast` vs `tessdata_best` ✅ — as a plain
+    `tessdata_dir` path (config or `--tessdata-dir`) rather than an enum:
+    the fast/best sets have no conventional install location, users clone
+    them anywhere. Joins the OCR cache key per ADR-0009.
 - Add guardrails:
   - maximum image dimensions for OCR (downscale)
   - memory usage limits (where feasible)

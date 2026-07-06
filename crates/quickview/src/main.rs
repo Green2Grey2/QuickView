@@ -18,8 +18,14 @@ struct Cli {
     quick_preview: bool,
 
     /// OCR language (Tesseract -l). Example: eng, deu, spa.
-    #[arg(long, default_value = "eng")]
-    lang: String,
+    /// Overrides QUICKVIEW_LANG and the config file; defaults to eng.
+    #[arg(long)]
+    lang: Option<String>,
+
+    /// Directory with .traineddata files, e.g. a tessdata_fast or
+    /// tessdata_best checkout. Overrides the config file.
+    #[arg(long)]
+    tessdata_dir: Option<PathBuf>,
 
     /// Image file path. Use '-' (or omit) to read a path from stdin.
     file: Option<String>,
@@ -43,13 +49,67 @@ fn main() -> Result<()> {
         quickview_ui::Mode::FullViewer
     };
 
+    // All resolution happens here, in the invoking process: with the
+    // single-instance app, the primary must never re-resolve a remote
+    // invocation's environment or config — only fully resolved values cross
+    // the process boundary (see quickview-ui's ipc module).
+    let ocr = resolve_ocr_options(cli.lang, cli.tessdata_dir);
+
     let code = quickview_ui::run(quickview_ui::LaunchOptions {
         mode,
         file: file_path,
-        ocr_lang: cli.lang,
+        ocr,
     })?;
 
     std::process::exit(code);
+}
+
+/// Resolve OCR settings from CLI > env (`QUICKVIEW_LANG`, lang only) >
+/// config file > defaults.
+///
+/// A config file that fails to parse is warned about and treated as absent:
+/// a typo must never prevent viewing an image (NFR-004).
+fn resolve_ocr_options(
+    cli_lang: Option<String>,
+    cli_tessdata_dir: Option<PathBuf>,
+) -> quickview_core::ocr::tesseract::OcrOptions {
+    use quickview_core::config;
+
+    let cfg = config::config_path()
+        .map(|path| {
+            config::load(&path).unwrap_or_else(|err| {
+                tracing::warn!("ignoring config file: {err:#}");
+                config::Config::default()
+            })
+        })
+        .unwrap_or_default();
+
+    let env_lang = std::env::var("QUICKVIEW_LANG").ok();
+    quickview_core::ocr::tesseract::OcrOptions {
+        lang: config::resolve_lang(cli_lang.as_deref(), env_lang.as_deref(), &cfg),
+        tessdata_dir: non_blank(cli_tessdata_dir)
+            .or_else(|| non_blank(cfg.ocr.tessdata_dir.clone()))
+            .map(absolutize),
+    }
+}
+
+/// Blank is unset, at each precedence level — same rule as `resolve_lang`.
+fn non_blank(path: Option<PathBuf>) -> Option<PathBuf> {
+    path.filter(|p| !p.to_string_lossy().trim().is_empty())
+}
+
+/// Pin a possibly-relative path to this process's cwd.
+///
+/// Like the image path, the tessdata dir must be absolutized in the invoking
+/// process: with the single-instance app, OCR runs in the primary instance,
+/// whose cwd has nothing to do with this invocation's. Canonicalizing also
+/// resolves symlinks so one directory always hashes to one cache key; a
+/// nonexistent path is made absolute without touching the filesystem and
+/// fails later in tesseract with a clear error.
+fn absolutize(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path)
+        .or_else(|_| std::path::absolute(&path))
+        .unwrap_or(path)
 }
 
 fn resolve_input_path(arg: Option<String>) -> Result<PathBuf> {
@@ -96,5 +156,38 @@ mod tests {
     fn resolve_passes_missing_paths_through() {
         let p = resolve_input_path(Some("does-not-exist.png".into())).unwrap();
         assert_eq!(p, PathBuf::from("does-not-exist.png"));
+    }
+
+    #[test]
+    fn blank_tessdata_dir_is_unset() {
+        assert_eq!(non_blank(None), None);
+        assert_eq!(non_blank(Some(PathBuf::new())), None);
+        assert_eq!(non_blank(Some(PathBuf::from("  "))), None);
+        assert_eq!(
+            non_blank(Some(PathBuf::from("/opt/tessdata"))),
+            Some(PathBuf::from("/opt/tessdata"))
+        );
+    }
+
+    #[test]
+    fn absolutize_resolves_existing_and_pins_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("tessdata");
+        std::fs::create_dir(&sub).unwrap();
+
+        // Existing: canonicalized (dot components resolved).
+        let dotted = dir.path().join(".").join("tessdata");
+        assert_eq!(absolutize(dotted), std::fs::canonicalize(&sub).unwrap());
+
+        // Missing: still made absolute against this process's cwd.
+        let missing = absolutize(PathBuf::from("no-such-tessdata"));
+        assert!(missing.is_absolute());
+        assert!(missing.ends_with("no-such-tessdata"));
+
+        // Already absolute + missing: unchanged.
+        assert_eq!(
+            absolutize(PathBuf::from("/nonexistent/tessdata")),
+            PathBuf::from("/nonexistent/tessdata")
+        );
     }
 }

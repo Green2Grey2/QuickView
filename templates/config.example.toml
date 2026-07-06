@@ -1,0 +1,23 @@
+# QuickView configuration.
+# Copy to: ~/.config/quickview/config.toml
+#
+# Precedence for each setting: CLI flag > environment variable (lang only)
+# > this file > built-in default. Unknown keys are treated as typos: the
+# whole file is ignored with a warning, so keep it clean.
+
+[ocr]
+# Default OCR language (tesseract -l). Multiple: "eng+deu".
+# Overridden by QUICKVIEW_LANG and --lang. Default: "eng".
+#lang = "eng"
+
+# Directory with .traineddata files, e.g. a clone of
+# https://github.com/tesseract-ocr/tessdata_fast (faster, slightly less
+# accurate) or tessdata_best (slower, most accurate). Overridden by
+# --tessdata-dir. Default: the system tessdata (on Arch:
+# /usr/share/tessdata, from tesseract-data-*).
+# Changing this re-runs OCR (it is part of the cache key).
+#tessdata_dir = "/home/you/src/tessdata_fast"
+
+# Maximum image dimension (px) before OCR works on a downscaled copy.
+# Accepted but not consumed yet; the guardrail lands in a follow-up.
+#max_dimension = 4000

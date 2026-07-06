@@ -3,6 +3,7 @@
 //! This crate intentionally has **no GTK dependencies**.
 
 pub mod cache;
+pub mod config;
 pub mod fs;
 pub mod geometry;
 pub mod ocr;
