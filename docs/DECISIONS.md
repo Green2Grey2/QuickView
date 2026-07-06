@@ -16,8 +16,10 @@ For more detail, see the ADRs in `adrs/`.
 - **OS targets:** Wayland-only (no X11 fallback for v1)
 
 ### Image rendering/decoding
-- **Decode library (preferred, optional):** **glycin** (sandboxed modular loaders)
-- **Fallback decoder (default in this scaffold):** GTK/GDK `Texture::from_file` path
+- **Decode library (default when loaders are installed):** **glycin** (sandboxed
+  modular loaders; probed once per session at runtime)
+- **Fallback decoder (session-wide only, never per-file):** GTK/GDK texture
+  decoding on a worker thread
 
 ### OCR
 - **Default OCR engine:** Tesseract (offline)

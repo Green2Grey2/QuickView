@@ -20,6 +20,20 @@ Prefer **`glycin`** for decoding where available, with a fallback to GTK/GDK def
 
 Glycin decodes via sandboxed modular loaders, improving safety when handling untrusted images.
 
+## Implementation notes (2026-07-05)
+
+- The `glycin` client crate is **always compiled** (pure Rust, no system build
+  deps); no cargo feature. Which backend is used is decided **at runtime** by
+  probing the installed loader configs once per session
+  (`quickview-ui/src/decode.rs`).
+- The GDK fallback is strictly **session-wide, never per-file**: a file glycin
+  rejects is a failed load. Retrying it with the unsandboxed GDK decoder would
+  let a crafted image reach the unsandboxed path simply by making the sandboxed
+  loader fail.
+- Both backends run off the GTK main thread (glycin in its sandboxed loader
+  process, GDK on a worker thread); stale decodes are dropped via a monotonic
+  job ID, the same pattern used for OCR (ADR-0010).
+
 ## Consequences
 
 ### Positive

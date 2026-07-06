@@ -144,18 +144,19 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 
 ---
 
-## Phase 7 — Hardening + performance (not started)
+## Phase 7 — Hardening + performance (in progress)
 
 **Core tasks**
-- Async + sandboxed image loading — implements ADR-0004, fixes NFR-001/NFR-002.
-  Do this first: the cache DoD below is unverifiable while decode still blocks
-  the main thread.
-  - replace the synchronous `Texture::from_file` in `load_file` with glycin's
-    async loader where available (behind a cargo feature), falling back to GDK
-    decoding on a background thread via the existing async-channel pattern
-  - show the previous image or a placeholder until decode completes
+- Async + sandboxed image loading ✅ — implements ADR-0004, fixes NFR-001/NFR-002.
+  - synchronous `Texture::from_file` in `load_file` replaced with glycin's
+    async loader (always compiled, chosen by a runtime loader probe — no cargo
+    feature), falling back to GDK decoding on a background thread via the
+    existing async-channel pattern ✅
+  - fallback is session-wide only, never per-file: a file glycin rejects is a
+    failed load and is never re-fed to the unsandboxed GDK decoder ✅
+  - previous image stays visible (under the busy spinner) until decode completes ✅
   - stale-result guard (monotonic job ID, same pattern as OCR) so fast
-    arrow-key navigation cannot race decodes
+    arrow-key navigation cannot race decodes ✅
 - Add cache (in-memory first; `cache.rs` on-disk key derivation exists but is unwired)
 - Add basic benchmarking hooks (decode + OCR timing)
 - Improve OCR accuracy options:
