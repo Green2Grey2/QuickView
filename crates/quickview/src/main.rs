@@ -18,8 +18,14 @@ struct Cli {
     quick_preview: bool,
 
     /// OCR language (Tesseract -l). Example: eng, deu, spa.
-    #[arg(long, default_value = "eng")]
-    lang: String,
+    /// Overrides QUICKVIEW_LANG and the config file; defaults to eng.
+    #[arg(long)]
+    lang: Option<String>,
+
+    /// Directory with .traineddata files, e.g. a tessdata_fast or
+    /// tessdata_best checkout. Overrides the config file.
+    #[arg(long)]
+    tessdata_dir: Option<PathBuf>,
 
     /// Image file path. Use '-' (or omit) to read a path from stdin.
     file: Option<String>,
@@ -43,13 +49,46 @@ fn main() -> Result<()> {
         quickview_ui::Mode::FullViewer
     };
 
+    // All resolution happens here, in the invoking process: with the
+    // single-instance app, the primary must never re-resolve a remote
+    // invocation's environment or config — only fully resolved values cross
+    // the process boundary (see quickview-ui's ipc module).
+    let ocr = resolve_ocr_options(cli.lang, cli.tessdata_dir);
+
     let code = quickview_ui::run(quickview_ui::LaunchOptions {
         mode,
         file: file_path,
-        ocr_lang: cli.lang,
+        ocr,
     })?;
 
     std::process::exit(code);
+}
+
+/// Resolve OCR settings from CLI > env (`QUICKVIEW_LANG`, lang only) >
+/// config file > defaults.
+///
+/// A config file that fails to parse is warned about and treated as absent:
+/// a typo must never prevent viewing an image (NFR-004).
+fn resolve_ocr_options(
+    cli_lang: Option<String>,
+    cli_tessdata_dir: Option<PathBuf>,
+) -> quickview_core::ocr::tesseract::OcrOptions {
+    use quickview_core::config;
+
+    let cfg = config::config_path()
+        .map(|path| {
+            config::load(&path).unwrap_or_else(|err| {
+                tracing::warn!("ignoring config file: {err:#}");
+                config::Config::default()
+            })
+        })
+        .unwrap_or_default();
+
+    let env_lang = std::env::var("QUICKVIEW_LANG").ok();
+    quickview_core::ocr::tesseract::OcrOptions {
+        lang: config::resolve_lang(cli_lang.as_deref(), env_lang.as_deref(), &cfg),
+        tessdata_dir: cli_tessdata_dir.or_else(|| cfg.ocr.tessdata_dir.clone()),
+    }
 }
 
 fn resolve_input_path(arg: Option<String>) -> Result<PathBuf> {

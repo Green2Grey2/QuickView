@@ -14,6 +14,7 @@ mod ipc;
 pub mod widgets;
 pub mod windows;
 
+use quickview_core::ocr::tesseract::OcrOptions;
 use windows::shared::ViewerController;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +27,9 @@ pub enum Mode {
 pub struct LaunchOptions {
     pub mode: Mode,
     pub file: PathBuf,
-    pub ocr_lang: String,
+    /// Fully resolved OCR settings: CLI/env/config precedence is applied in
+    /// the invoking process before these cross the instance boundary.
+    pub ocr: OcrOptions,
 }
 
 /// Windows the primary instance manages across invocations.
@@ -99,8 +102,8 @@ fn dispatch(app: &adw::Application, state: &Rc<AppState>, opts: &LaunchOptions) 
                     window.close();
                 } else {
                     // Explicit request for a different file: show it, with
-                    // the language this invocation asked for.
-                    controller.set_ocr_lang(opts.ocr_lang.clone());
+                    // the OCR settings this invocation asked for.
+                    controller.set_ocr_options(opts.ocr.clone());
                     controller.load_file(&opts.file);
                     window.present();
                 }

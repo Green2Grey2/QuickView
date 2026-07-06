@@ -16,6 +16,7 @@ tracing-subscriber.workspace = true
 
 clap = { version = "4", features = ["derive"] }
 
+quickview-core = { path = "../quickview-core" }
 quickview-ui = { path = "../quickview-ui" }
 
 [dev-dependencies]

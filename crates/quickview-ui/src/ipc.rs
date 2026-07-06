@@ -6,7 +6,8 @@
 //! crosses the process boundary is only this fixed, sanitized form:
 //!
 //! ```text
-//! quickview --mode=<quick-preview|full-viewer> --lang=<lang> --file=<abs path>
+//! quickview --mode=<quick-preview|full-viewer> --lang=<lang> \
+//!     [--tessdata-dir=<dir>] --file=<abs path>
 //! ```
 //!
 //! Every value is glued to its key in a single `--key=value` token: GLib's
@@ -25,6 +26,8 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
 
+use quickview_core::ocr::tesseract::OcrOptions;
+
 use crate::{LaunchOptions, Mode};
 
 const MODE_QUICK_PREVIEW: &str = "quick-preview";
@@ -35,17 +38,22 @@ pub(crate) fn to_argv(opts: &LaunchOptions) -> Vec<String> {
         Mode::QuickPreview => MODE_QUICK_PREVIEW,
         Mode::FullViewer => MODE_FULL_VIEWER,
     };
-    vec![
+    let mut argv = vec![
         "quickview".to_owned(),
         format!("--mode={mode}"),
-        format!("--lang={}", opts.ocr_lang),
-        format!("--file={}", opts.file.to_string_lossy()),
-    ]
+        format!("--lang={}", opts.ocr.lang),
+    ];
+    if let Some(dir) = &opts.ocr.tessdata_dir {
+        argv.push(format!("--tessdata-dir={}", dir.to_string_lossy()));
+    }
+    argv.push(format!("--file={}", opts.file.to_string_lossy()));
+    argv
 }
 
 pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
     let mut mode = None;
     let mut lang = None;
+    let mut tessdata_dir: Option<PathBuf> = None;
     let mut file: Option<PathBuf> = None;
 
     for arg in argv.iter().skip(1) {
@@ -61,6 +69,8 @@ pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
             });
         } else if let Some(value) = arg.strip_prefix("--lang=") {
             lang = Some(value.to_owned());
+        } else if let Some(value) = arg.strip_prefix("--tessdata-dir=") {
+            tessdata_dir = Some(PathBuf::from(value));
         } else if let Some(value) = arg.strip_prefix("--file=") {
             file = Some(PathBuf::from(value));
         } else {
@@ -70,7 +80,10 @@ pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
 
     Ok(LaunchOptions {
         mode: mode.ok_or_else(|| anyhow!("missing --mode"))?,
-        ocr_lang: lang.ok_or_else(|| anyhow!("missing --lang"))?,
+        ocr: OcrOptions {
+            lang: lang.ok_or_else(|| anyhow!("missing --lang"))?,
+            tessdata_dir,
+        },
         file: file.ok_or_else(|| anyhow!("missing --file"))?,
     })
 }
@@ -83,7 +96,10 @@ mod tests {
         LaunchOptions {
             mode,
             file: PathBuf::from(file),
-            ocr_lang: lang.to_owned(),
+            ocr: OcrOptions {
+                lang: lang.to_owned(),
+                tessdata_dir: None,
+            },
         }
     }
 
@@ -114,6 +130,20 @@ mod tests {
             let original = opts(Mode::QuickPreview, "deu", file);
             assert_eq!(round_trip(&original), original);
         }
+    }
+
+    #[test]
+    fn round_trips_tessdata_dir() {
+        let mut original = opts(Mode::QuickPreview, "eng", "/tmp/a.png");
+        original.ocr.tessdata_dir = Some(PathBuf::from("/opt/tess data/fast"));
+        assert_eq!(round_trip(&original), original);
+
+        // Absent stays absent (no --tessdata-dir token emitted at all).
+        let without = opts(Mode::QuickPreview, "eng", "/tmp/a.png");
+        assert!(!to_argv(&without)
+            .iter()
+            .any(|a| a.starts_with("--tessdata-dir")));
+        assert_eq!(round_trip(&without), without);
     }
 
     #[test]
