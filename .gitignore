@@ -29,3 +29,6 @@ repo/
 .claude/*
 !.claude/CLAUDE.md
 
+# Local working notes (not for the repo)
+/TODO.local.md
+

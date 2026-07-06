@@ -40,8 +40,7 @@ pub fn present(app: &adw::Application, opts: &LaunchOptions) {
         controller.connect_key_pressed(move |_, key, _, state| {
             let is_ctrl = state.contains(gtk::gdk::ModifierType::CONTROL_MASK);
             if is_ctrl && key == gtk::gdk::Key::c {
-                let display = WidgetExt::display(&window_clone);
-                viewer.copy_selection_to_clipboard(&display);
+                viewer.copy_selection_to_clipboard();
                 return glib::Propagation::Stop;
             }
 

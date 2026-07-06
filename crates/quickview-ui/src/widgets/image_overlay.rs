@@ -77,6 +77,10 @@ impl ImageOverlayWidget {
         self.canvas.selected_text()
     }
 
+    pub fn copy_selection_to_clipboard(&self) {
+        self.canvas.copy_selection_to_clipboard();
+    }
+
     pub fn zoom_by(&self, factor: f64) {
         self.canvas.zoom_by(factor);
     }
@@ -100,6 +104,7 @@ mod imp {
     #[derive(Default)]
     pub struct ZoomableCanvas {
         pub(super) state: RefCell<CanvasState>,
+        pub(super) context_menu: RefCell<Option<gtk::PopoverMenu>>,
     }
 
     #[glib::object_subclass]
@@ -107,6 +112,15 @@ mod imp {
         const NAME: &'static str = "QuickViewZoomableCanvas";
         type Type = super::ZoomableCanvas;
         type ParentType = gtk::Widget;
+
+        fn class_init(klass: &mut Self::Class) {
+            klass.install_action("canvas.copy", None, |canvas, _, _| {
+                canvas.copy_selection_to_clipboard();
+            });
+            klass.install_action("canvas.copy-all", None, |canvas, _, _| {
+                canvas.copy_all_text_to_clipboard();
+            });
+        }
     }
 
     impl ObjectImpl for ZoomableCanvas {
@@ -116,6 +130,13 @@ mod imp {
             let obj = self.obj();
             obj.set_focusable(true);
             obj.setup_controllers();
+            obj.update_copy_actions();
+        }
+
+        fn dispose(&self) {
+            if let Some(menu) = self.context_menu.take() {
+                menu.unparent();
+            }
         }
     }
 
@@ -279,6 +300,7 @@ impl ZoomableCanvas {
         drop(state);
         self.queue_draw();
         self.update_cursor();
+        self.update_copy_actions();
     }
 
     pub fn set_ocr_result(&self, result: Option<OcrResult>) {
@@ -292,6 +314,7 @@ impl ZoomableCanvas {
         state.selecting = false;
         drop(state);
         self.queue_draw();
+        self.update_copy_actions();
     }
 
     pub fn clear_selection(&self) {
@@ -300,6 +323,7 @@ impl ZoomableCanvas {
         state.selected_indices.clear();
         drop(state);
         self.queue_draw();
+        self.update_copy_actions();
     }
 
     pub fn selected_text(&self) -> String {
@@ -314,6 +338,28 @@ impl ZoomableCanvas {
             .filter_map(|&idx| ocr.words.get(idx))
             .collect::<Vec<_>>();
         select::selected_text(words)
+    }
+
+    pub fn copy_selection_to_clipboard(&self) {
+        let text = self.selected_text();
+        if text.trim().is_empty() {
+            return;
+        }
+        self.clipboard().set_text(&text);
+    }
+
+    pub fn copy_all_text_to_clipboard(&self) {
+        let text = {
+            let state = self.imp().state.borrow();
+            match &state.ocr {
+                Some(ocr) => select::selected_text(ocr.words.iter().collect()),
+                None => String::new(),
+            }
+        };
+        if text.trim().is_empty() {
+            return;
+        }
+        self.clipboard().set_text(&text);
     }
 
     pub fn zoom_by(&self, factor: f64) {
@@ -414,6 +460,17 @@ impl ZoomableCanvas {
         }
         self.add_controller(pinch);
 
+        let right_click = gtk::GestureClick::new();
+        right_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+        {
+            let canvas = self.clone();
+            right_click.connect_pressed(move |gesture, _n_press, x, y| {
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                canvas.show_context_menu(x, y);
+            });
+        }
+        self.add_controller(right_click);
+
         let drag = gtk::GestureDrag::new();
         drag.set_button(0);
         {
@@ -477,6 +534,7 @@ impl ZoomableCanvas {
         drop(state);
         self.update_cursor();
         self.queue_draw();
+        self.update_copy_actions();
     }
 
     fn on_drag_update(&self, dx: f64, dy: f64) {
@@ -557,6 +615,7 @@ impl ZoomableCanvas {
         drop(state);
         self.update_cursor();
         self.queue_draw();
+        self.update_copy_actions();
     }
 
     fn on_pinch_begin(&self, gesture: &gtk::GestureZoom) {
@@ -730,6 +789,44 @@ impl ZoomableCanvas {
         drop(state);
         self.queue_draw();
         self.update_cursor();
+    }
+
+    fn show_context_menu(&self, x: f64, y: f64) {
+        let imp = self.imp();
+        if imp.context_menu.borrow().is_none() {
+            let model = gtk::gio::Menu::new();
+            model.append(Some("Copy"), Some("canvas.copy"));
+            model.append(Some("Copy All Text"), Some("canvas.copy-all"));
+
+            let popover = gtk::PopoverMenu::from_model(Some(&model));
+            popover.set_parent(self);
+            popover.set_has_arrow(false);
+            popover.set_halign(gtk::Align::Start);
+            *imp.context_menu.borrow_mut() = Some(popover);
+        }
+
+        let popover = imp
+            .context_menu
+            .borrow()
+            .as_ref()
+            .expect("context menu just created")
+            .clone();
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+    }
+
+    fn update_copy_actions(&self) {
+        let state = self.imp().state.borrow();
+        let has_selection = !state.selected_indices.is_empty();
+        let has_words = state
+            .ocr
+            .as_ref()
+            .map(|ocr| !ocr.words.is_empty())
+            .unwrap_or(false);
+        drop(state);
+
+        self.action_set_enabled("canvas.copy", has_selection);
+        self.action_set_enabled("canvas.copy-all", has_words);
     }
 
     fn widget_center(&self) -> Point {
