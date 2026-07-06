@@ -11,6 +11,7 @@ use gtk::gio;
 
 mod decode;
 mod ipc;
+mod ocr_prep;
 pub mod widgets;
 pub mod windows;
 
@@ -30,6 +31,8 @@ pub struct LaunchOptions {
     /// Fully resolved OCR settings: CLI/env/config precedence is applied in
     /// the invoking process before these cross the instance boundary.
     pub ocr: OcrOptions,
+    /// Max image dimension before OCR downscales (0 disables the guardrail).
+    pub max_ocr_dimension: u32,
 }
 
 /// Windows the primary instance manages across invocations.
@@ -104,6 +107,7 @@ fn dispatch(app: &adw::Application, state: &Rc<AppState>, opts: &LaunchOptions) 
                     // Explicit request for a different file: show it, with
                     // the OCR settings this invocation asked for.
                     controller.set_ocr_options(opts.ocr.clone());
+                    controller.set_max_ocr_dimension(opts.max_ocr_dimension);
                     controller.load_file(&opts.file);
                     window.present();
                 }

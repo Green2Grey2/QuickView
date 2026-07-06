@@ -1673,6 +1673,7 @@ dependencies = [
  "gtk4-layer-shell",
  "libadwaita",
  "quickview-core",
+ "tempfile",
  "tracing",
 ]
 

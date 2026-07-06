@@ -9,7 +9,7 @@ use gtk4 as gtk;
 
 use quickview_core::{
     cache, fs,
-    ocr::{tesseract, tesseract::OcrOptions, tsv},
+    ocr::{downscale, tesseract, tesseract::OcrOptions, tsv},
 };
 
 use crate::widgets::image_overlay::ImageOverlayWidget;
@@ -40,6 +40,7 @@ pub struct ViewerController {
     dir_index: Rc<Cell<usize>>,
 
     ocr: Rc<RefCell<OcrOptions>>,
+    max_ocr_dimension: Rc<Cell<u32>>,
 
     // Monotonic ids to ignore late results from superseded jobs.
     decode_job_id: Rc<Cell<u64>>,
@@ -50,7 +51,7 @@ pub struct ViewerController {
 }
 
 impl ViewerController {
-    pub fn new(initial_file: PathBuf, ocr: OcrOptions) -> Self {
+    pub fn new(initial_file: PathBuf, ocr: OcrOptions, max_ocr_dimension: u32) -> Self {
         let overlay = ImageOverlayWidget::new();
 
         let current_file = Rc::new(RefCell::new(initial_file.clone()));
@@ -62,6 +63,7 @@ impl ViewerController {
             dir_images: Rc::new(RefCell::new(dir_images)),
             dir_index: Rc::new(Cell::new(dir_index)),
             ocr: Rc::new(RefCell::new(ocr)),
+            max_ocr_dimension: Rc::new(Cell::new(max_ocr_dimension)),
             decode_job_id: Rc::new(Cell::new(0)),
             ocr_job_id: Rc::new(Cell::new(0)),
             on_file_loaded: Rc::new(RefCell::new(None)),
@@ -92,6 +94,11 @@ impl ViewerController {
         *self.ocr.borrow_mut() = ocr;
     }
 
+    /// Change the OCR max-dimension guardrail for subsequent loads.
+    pub fn set_max_ocr_dimension(&self, max: u32) {
+        self.max_ocr_dimension.set(max);
+    }
+
     /// Register a callback fired whenever a file finishes loading (or fails).
     ///
     /// If a file has already been loaded, the callback is invoked immediately
@@ -118,6 +125,11 @@ impl ViewerController {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
         let size_bytes = std::fs::metadata(path).ok().map(|m| m.len());
+        // Stamp the file identity before the decode reads its content: the
+        // OCR cache key must describe the bytes that were actually decoded,
+        // not whatever the file becomes while the async decode runs (see
+        // cache::FileStamp).
+        let stamp = cache::FileStamp::read(path);
 
         // Supersede any in-flight decode.
         let decode_id = self.decode_job_id.get().wrapping_add(1);
@@ -133,13 +145,15 @@ impl ViewerController {
 
         let this = self.clone();
         let path = path.to_path_buf();
+        let started = std::time::Instant::now();
         glib::MainContext::default().spawn_local(async move {
             let result = crate::decode::decode_texture(&path).await;
-            this.finish_decode(decode_id, path, name, size_bytes, result);
+            this.finish_decode(decode_id, path, name, size_bytes, result, started, stamp);
         });
     }
 
     /// Apply a finished decode, unless a newer `load_file` superseded it.
+    #[allow(clippy::too_many_arguments)]
     fn finish_decode(
         &self,
         job_id: u64,
@@ -147,6 +161,8 @@ impl ViewerController {
         name: String,
         size_bytes: Option<u64>,
         result: anyhow::Result<gtk::gdk::Texture>,
+        started: std::time::Instant,
+        stamp: cache::FileStamp,
     ) {
         if job_id != self.decode_job_id.get() {
             // Late result for a file the user already navigated away from.
@@ -155,6 +171,14 @@ impl ViewerController {
 
         match result {
             Ok(texture) => {
+                tracing::debug!(
+                    target: "quickview::perf",
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    width = texture.width(),
+                    height = texture.height(),
+                    path = %path.display(),
+                    "decode"
+                );
                 let info = FileInfo {
                     name,
                     width: texture.width(),
@@ -162,9 +186,25 @@ impl ViewerController {
                     size_bytes,
                     load_failed: false,
                 };
-                self.overlay.set_texture(texture);
+                self.overlay.set_texture(texture.clone());
                 self.emit_file_loaded(info);
-                self.start_ocr(path);
+                // Re-stat now that the decode is done: if the file changed
+                // while the decoder had it open, the texture's provenance is
+                // ambiguous (old or new bytes), so the cache must sit this
+                // load out — a hit could paint stale boxes over new pixels
+                // and a store could file this OCR under a mismatched key.
+                // Matching nanosecond stamps on both sides of the decode pin
+                // the decoded version to the key.
+                let stamp = {
+                    let after = cache::FileStamp::read(&path);
+                    if after != stamp {
+                        tracing::debug!(
+                            "file changed during decode; skipping OCR cache for this load"
+                        );
+                    }
+                    (after == stamp).then_some(stamp)
+                };
+                self.start_ocr(path, &texture, stamp);
             }
             Err(err) => {
                 tracing::error!("Failed to load image: {err:#}");
@@ -216,11 +256,40 @@ impl ViewerController {
         self.overlay.copy_selection_to_clipboard();
     }
 
-    fn start_ocr(&self, path: PathBuf) {
+    fn start_ocr(
+        &self,
+        path: PathBuf,
+        texture: &gtk::gdk::Texture,
+        stamp: Option<cache::FileStamp>,
+    ) {
         self.overlay.set_ocr_busy(true);
         self.overlay.set_ocr_result(None);
 
         let ocr_opts = self.ocr.borrow().clone();
+
+        // Max-dimension guardrail: oversized images are fed to tesseract as
+        // a downscaled temp copy made from the decoded texture (see
+        // ocr_prep). Any prep failure degrades to full-resolution OCR — the
+        // guardrail is a performance measure, not a correctness one.
+        let plan = downscale::plan_downscale(
+            texture.width().max(0) as u32,
+            texture.height().max(0) as u32,
+            self.max_ocr_dimension.get(),
+        );
+
+        // The cache key uses the *planned* downscale target — the size the
+        // guardrail intends tesseract to see — so it is derivable before any
+        // pixels are prepared, and a cache hit never touches the pixels at
+        // all. Degraded runs (failed download or scale) store their
+        // full-resolution result under the same planned key: strictly better
+        // content, and future opens then hit it like any other entry.
+        let downscale_target = plan.map(|p| (p.target_w, p.target_h));
+        // No stamp (file changed during decode) means no entry: the worker
+        // neither reads nor writes the cache for this load.
+        let entry = stamp.and_then(|stamp| {
+            cache::cache_dir()
+                .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target, stamp))
+        });
 
         let (sender, receiver) = async_channel::bounded::<(
             u64,
@@ -231,23 +300,113 @@ impl ViewerController {
         let new_id = self.ocr_job_id.get().wrapping_add(1);
         self.ocr_job_id.set(new_id);
 
-        // All cache I/O stays on the worker thread; hits flow through the same
-        // channel as fresh results, so the job-id guard applies unchanged.
-        let cache_root = cache::cache_dir();
+        // All cache I/O and all pixel work stays on the worker thread; hits
+        // flow through the same channel as fresh results, so the job-id
+        // guard applies unchanged. The texture travels with the closure:
+        // GdkTexture is immutable and threadsafe (decode.rs already sends
+        // textures across threads), so the download happens only after the
+        // authoritative cache read misses — never for a hit, and never on
+        // the main thread.
+        let texture = texture.clone();
         std::thread::spawn(move || {
             let r = (|| {
-                // Snapshot the cache key before OCR runs: if the file is
+                // The entry was snapshotted before OCR runs: if the file is
                 // edited mid-OCR, the stale result lands under the old key,
                 // which the edited file then correctly misses.
-                let entry = cache_root
-                    .as_deref()
-                    .map(|root| cache::ocr_cache_path(root, &path, &ocr_opts));
                 if let Some(cached) = entry.as_deref().and_then(cache::load_ocr) {
                     tracing::debug!("OCR cache hit for {}", path.display());
                     return Ok(cached);
                 }
-                let tsv_out = tesseract::run_tesseract_tsv(&path, &ocr_opts)?;
-                let parsed = tsv::parse_tesseract_tsv(&tsv_out)?;
+
+                // Materialize the temp copy tesseract will read (cache
+                // misses only — a hit never needs the pixels). The temp file
+                // guard must outlive the tesseract run; drop deletes it on
+                // every path.
+                //
+                // With an unknown stamp (the file changed during decode) the
+                // live path cannot be trusted to match the displayed texture,
+                // so the decoded pixels are the only safe OCR input: OCR them
+                // at original size (factor 1.0) and never fall back to the
+                // live file. With a known stamp, a prep failure degrades to
+                // full resolution, which stores a (strictly better) full-res
+                // result under the downscaled key.
+                let pixels_only = stamp.is_none();
+                let prep_plan = plan.or_else(|| {
+                    pixels_only.then(|| downscale::DownscalePlan {
+                        target_w: texture.width().max(1) as u32,
+                        target_h: texture.height().max(1) as u32,
+                        factor: 1.0,
+                    })
+                });
+                let mut ocr_input = path.clone();
+                let mut tmp_guard = None;
+                let mut factors = None;
+                if let Some(plan) = &prep_plan {
+                    let prep_started = std::time::Instant::now();
+                    let downscaled = crate::ocr_prep::download_rgba(&texture)
+                        .and_then(|pixels| crate::ocr_prep::write_downscaled_png(&pixels, plan));
+                    match downscaled {
+                        Ok(downscaled) => {
+                            tracing::debug!(
+                                target: "quickview::perf",
+                                elapsed_ms = prep_started.elapsed().as_millis() as u64,
+                                factor = plan.factor,
+                                target_w = downscaled.target.0,
+                                target_h = downscaled.target.1,
+                                "downscale prep"
+                            );
+                            ocr_input = downscaled.path().to_path_buf();
+                            factors = Some((downscaled.factor_x, downscaled.factor_y));
+                            tmp_guard = Some(downscaled);
+                        }
+                        Err(err) if pixels_only => {
+                            return Err(err.context(
+                                "cannot OCR from decoded pixels and the live file is untrusted",
+                            ));
+                        }
+                        Err(err) => {
+                            tracing::warn!("downscale failed; OCR at full resolution: {err:#}");
+                        }
+                    }
+                }
+
+                let ocr_started = std::time::Instant::now();
+                let tsv_out = tesseract::run_tesseract_tsv(&ocr_input, &ocr_opts)?;
+                let mut parsed = tsv::parse_tesseract_tsv(&tsv_out)?;
+                tracing::debug!(
+                    target: "quickview::perf",
+                    elapsed_ms = ocr_started.elapsed().as_millis() as u64,
+                    words = parsed.words.len(),
+                    lang = %ocr_opts.lang,
+                    downscaled = tmp_guard.is_some(),
+                    "ocr"
+                );
+
+                // A full-resolution run had tesseract read the *live* file,
+                // which may have been replaced since the decode; a stamp
+                // mismatch means these words describe different bytes than
+                // the displayed texture (and than the entry's key), so the
+                // result is dropped — no overlay, nothing stored. Pixel-fed
+                // runs (downscaled, or pixels_only above) OCR the decoded
+                // texture and are immune, so only the stamped full-resolution
+                // path needs re-verification.
+                if tmp_guard.is_none() {
+                    if let Some(stamp) = stamp {
+                        if cache::FileStamp::read(&path) != stamp {
+                            anyhow::bail!("file changed during OCR; discarding mismatched result");
+                        }
+                    }
+                }
+                drop(tmp_guard);
+
+                // Bboxes go back to original image space before caching and
+                // indexing: everything downstream only sees original-space
+                // coordinates, so cache hits are indistinguishable from
+                // full-resolution parses.
+                if let Some((fx, fy)) = factors {
+                    downscale::upscale_bboxes(&mut parsed, fx, fy);
+                }
+
                 // Empty results are cached too (text-free images shouldn't
                 // re-run tesseract); failures are not, so transient errors
                 // retry on the next open.

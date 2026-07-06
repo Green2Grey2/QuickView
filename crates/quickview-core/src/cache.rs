@@ -1,10 +1,10 @@
 //! On-disk OCR result cache.
 //!
 //! Entries are JSON files under `<cache_root>/ocr/`, keyed by a blake3 hash of
-//! the image path, the OCR settings (language, tessdata dir), and file
-//! mtime+size — so an edited file is simply a cache miss (no invalidation
-//! logic needed). There is no eviction in
-//! v1: entries are a few KB each, and users can clear the directory manually.
+//! the image path, the OCR settings (language, tessdata dir), the effective
+//! downscale target, and file mtime+size — so an edited file is simply a
+//! cache miss (no invalidation logic needed). There is no eviction in v1:
+//! entries are a few KB each, and users can clear the directory manually.
 //! Phase 8's persistent SQLite cache is the planned successor (ADR-0009).
 
 use std::path::{Path, PathBuf};
@@ -20,18 +20,60 @@ pub fn cache_dir() -> Option<PathBuf> {
     Some(crate::config::project_dirs()?.cache_dir().to_path_buf())
 }
 
-pub fn ocr_cache_path(cache_root: &Path, file: &Path, opts: &OcrOptions) -> PathBuf {
-    // Include file metadata to avoid stale caches. Full nanosecond mtime:
-    // whole seconds would alias a same-second rewrite of the same path with
-    // an unchanged byte length (rapid screenshot/editor saves).
-    let meta = std::fs::metadata(file).ok();
-    let mtime = meta
-        .as_ref()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+/// Snapshot of the file-identity fields that join the OCR cache key.
+///
+/// Read the stamp **before** the image content is read (i.e. before decode
+/// starts): if the file is replaced afterwards, the derived key belongs to
+/// the old content and the edited file simply misses it. Stamping *after*
+/// the content was read would let old pixels be stored under the live
+/// file's key, which future opens would then wrongly hit.
+///
+/// Full nanosecond mtime: whole seconds would alias a same-second rewrite
+/// of the same path with an unchanged byte length (rapid screenshot/editor
+/// saves). Unreadable metadata stamps as zeros.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileStamp {
+    mtime_nanos: u128,
+    size: u64,
+}
+
+impl FileStamp {
+    pub fn read(file: &Path) -> Self {
+        let meta = std::fs::metadata(file).ok();
+        let mtime_nanos = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        Self { mtime_nanos, size }
+    }
+}
+
+/// Compute the cache entry path for one OCR run.
+///
+/// `stamp` must have been read before the image content (see [`FileStamp`]).
+///
+/// `downscale_target` is the *planned* image size for tesseract: `None` for
+/// a full-resolution run, `Some((w, h))` when the max-dimension guardrail
+/// intends to feed it a downscaled copy. Hashing the target rather than the
+/// configured threshold keeps below-threshold images' entries valid across
+/// `max_dimension` edits — per ADR-0009, only inputs that change the
+/// recognition output join the key. (A degraded run that falls back to full
+/// resolution still stores under the planned key: strictly better content,
+/// and it lets future opens hit the cache without re-preparing pixels.)
+pub fn ocr_cache_path(
+    cache_root: &Path,
+    file: &Path,
+    opts: &OcrOptions,
+    downscale_target: Option<(u32, u32)>,
+    stamp: FileStamp,
+) -> PathBuf {
+    let FileStamp {
+        mtime_nanos: mtime,
+        size,
+    } = stamp;
 
     let mut hasher = blake3::Hasher::new();
     hasher.update(file.as_os_str().as_encoded_bytes());
@@ -50,6 +92,11 @@ pub fn ocr_cache_path(cache_root: &Path, file: &Path, opts: &OcrOptions) -> Path
             hasher.update(&[0]);
         }
     }
+    hasher.update(b"\0");
+    match downscale_target {
+        Some((w, h)) => hasher.update(format!("{w}x{h}").as_bytes()),
+        None => hasher.update(b"full"),
+    };
     hasher.update(b"\0");
     hasher.update(&mtime.to_le_bytes());
     hasher.update(&size.to_le_bytes());
@@ -157,45 +204,85 @@ mod tests {
 
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let base = ocr_cache_path(root, &img, &eng());
+        let base = ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img));
 
         // Same inputs -> same key.
-        assert_eq!(base, ocr_cache_path(root, &img, &eng()));
+        assert_eq!(
+            base,
+            ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img))
+        );
 
         // Different language -> different key.
         let deu = OcrOptions {
             lang: "deu".into(),
             ..eng()
         };
-        assert_ne!(base, ocr_cache_path(root, &img, &deu));
+        assert_ne!(
+            base,
+            ocr_cache_path(root, &img, &deu, None, FileStamp::read(&img))
+        );
 
         // Different path -> different key.
         let img2 = dir.path().join("b.png");
         std::fs::write(&img2, b"xx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img2, &eng()));
+        assert_ne!(
+            base,
+            ocr_cache_path(root, &img2, &eng(), None, FileStamp::read(&img2))
+        );
 
         // Different size -> different key.
         std::fs::write(&img, b"xxxx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img, &eng()));
+        assert_ne!(
+            base,
+            ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img))
+        );
 
         // Different mtime (same size) -> different key.
         std::fs::write(&img, b"xx").unwrap();
-        let before = ocr_cache_path(root, &img, &eng());
+        let before = ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img));
         let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
         std::fs::File::open(&img)
             .unwrap()
             .set_modified(old)
             .unwrap();
-        assert_ne!(before, ocr_cache_path(root, &img, &eng()));
+        assert_ne!(
+            before,
+            ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img))
+        );
 
         // Subsecond mtime change (same second, same size) -> different key.
         let with_key = |t| {
             std::fs::File::open(&img).unwrap().set_modified(t).unwrap();
-            ocr_cache_path(root, &img, &eng())
+            ocr_cache_path(root, &img, &eng(), None, FileStamp::read(&img))
         };
         assert_ne!(
             with_key(old + std::time::Duration::from_nanos(1)),
             with_key(old)
+        );
+    }
+
+    #[test]
+    fn key_changes_with_downscale_target_only_when_downscaled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, b"xx").unwrap();
+
+        let with_target = |t| ocr_cache_path(root, &img, &eng(), t, FileStamp::read(&img));
+
+        // A downscaled run is keyed apart from full resolution, and targets
+        // are keyed apart from each other.
+        assert_ne!(with_target(None), with_target(Some((4000, 2000))));
+        assert_ne!(
+            with_target(Some((4000, 2000))),
+            with_target(Some((2000, 1000)))
+        );
+        // Same effective target -> same key (threshold edits don't invalidate
+        // below-threshold images, which always hash as full resolution).
+        assert_eq!(with_target(None), with_target(None));
+        assert_eq!(
+            with_target(Some((4000, 2000))),
+            with_target(Some((4000, 2000)))
         );
     }
 
@@ -211,7 +298,7 @@ mod tests {
                 lang: "eng".into(),
                 tessdata_dir: d.map(PathBuf::from),
             };
-            ocr_cache_path(root, &img, &opts)
+            ocr_cache_path(root, &img, &opts, None, FileStamp::read(&img))
         };
 
         // Some(dir) differs from None, and dirs differ from each other.
@@ -234,7 +321,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None, FileStamp::read(&img));
 
         let result = sample_result();
         store_ocr(&entry, &result).unwrap();
@@ -267,7 +354,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None, FileStamp::read(&img));
         assert!(load_ocr(&entry).is_none());
     }
 
@@ -277,7 +364,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None, FileStamp::read(&img));
         std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
         std::fs::write(&entry, b"{not json").unwrap();
 

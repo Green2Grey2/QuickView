@@ -170,7 +170,9 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
   `~/.cache/quickview/ocr/`, checked/written on the OCR worker thread, atomic
   writes, no eviction in v1. Survives restarts, so Quick Preview's
   process-per-invocation benefits too.
-- Add basic benchmarking hooks (decode + OCR timing)
+- Add basic benchmarking hooks ✅ — `tracing` debug events under target
+  `quickview::perf` (decode, OCR cache hit, downscale prep, tesseract+parse);
+  opt in with `RUST_LOG=quickview::perf=debug`
 - Improve OCR accuracy options:
   - language selection via config file / env var ✅ — precedence
     `--lang` > `QUICKVIEW_LANG` > `~/.config/quickview/config.toml` > `eng`
@@ -180,8 +182,15 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
     the fast/best sets have no conventional install location, users clone
     them anywhere. Joins the OCR cache key per ADR-0009.
 - Add guardrails:
-  - maximum image dimensions for OCR (downscale)
-  - memory usage limits (where feasible)
+  - maximum image dimensions for OCR ✅ — `[ocr] max_dimension` (default
+    4000, 0 disables, `--max-ocr-dim` overrides): oversized images are fed to
+    tesseract as a downscaled temp PNG produced from the already-decoded
+    texture (never an in-process re-decode of the untrusted file); word boxes
+    are mapped back to original image space before caching/indexing, and the
+    effective target joins the cache key
+  - memory usage limits — deferred to Phase 8 (the transient RGBA copy during
+    downscale prep is the only known spike, bounded and measured by the perf
+    hooks)
 
 **Definition of done**
 - Opening a large image does not freeze or hitch the UI

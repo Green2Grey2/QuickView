@@ -43,8 +43,8 @@ pub struct OcrSection {
     /// Directory with `.traineddata` files, e.g. a `tessdata_fast` or
     /// `tessdata_best` checkout (overridden by `--tessdata-dir`).
     pub tessdata_dir: Option<PathBuf>,
-    /// Maximum image dimension before OCR downscales (not consumed yet;
-    /// accepted so configs written for the guardrail don't error).
+    /// Maximum image dimension before OCR runs on a downscaled copy
+    /// (overridden by `--max-ocr-dim`; `0` disables the guardrail).
     pub max_dimension: Option<u32>,
 }
 

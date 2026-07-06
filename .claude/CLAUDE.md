@@ -61,6 +61,13 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
   `config.rs`): lang (precedence `--lang` > `QUICKVIEW_LANG` > config >
   `eng`) and `tessdata_dir` (`--tessdata-dir` > config); both live in
   `OcrOptions` and join the cache key
+- OCR max-dimension guardrail (`max_dimension`/`--max-ocr-dim`, default 4000):
+  oversized images OCR a downscaled temp PNG made from the decoded texture
+  (`ocr_prep.rs`; main-thread download, worker-thread scale+encode), bboxes
+  map back to original space (`ocr/downscale.rs`), effective target joins the
+  cache key
+- `quickview::perf` debug timing events (decode, cache hit, downscale prep,
+  OCR) — `RUST_LOG=quickview::perf=debug`
 - On-disk OCR cache (`~/.cache/quickview/ocr/`, keyed by path+lang+mtime+size;
   no eviction in v1 — see ADR-0009 implementation notes)
 - Drag-select overlay with word highlighting
@@ -69,7 +76,7 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Zoom & pan (Ctrl+scroll, pinch, +/- keys, middle-drag pan) via custom `ZoomableCanvas` widget
 
 ### What's not implemented yet:
-- Performance benchmarks
+- Memory usage limits (deferred to Phase 8)
 
 ## Development
 

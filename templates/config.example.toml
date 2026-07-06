@@ -18,6 +18,7 @@
 # Changing this re-runs OCR (it is part of the cache key).
 #tessdata_dir = "/home/you/src/tessdata_fast"
 
-# Maximum image dimension (px) before OCR works on a downscaled copy.
-# Accepted but not consumed yet; the guardrail lands in a follow-up.
+# Maximum image dimension (px) before OCR works on a downscaled temporary
+# copy (word positions are mapped back to the full-size image). 0 disables
+# the guardrail. Overridden by --max-ocr-dim. Default: 4000.
 #max_dimension = 4000
