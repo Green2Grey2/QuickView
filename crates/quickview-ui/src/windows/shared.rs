@@ -125,6 +125,11 @@ impl ViewerController {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
         let size_bytes = std::fs::metadata(path).ok().map(|m| m.len());
+        // Stamp the file identity before the decode reads its content: the
+        // OCR cache key must describe the bytes that were actually decoded,
+        // not whatever the file becomes while the async decode runs (see
+        // cache::FileStamp).
+        let stamp = cache::FileStamp::read(path);
 
         // Supersede any in-flight decode.
         let decode_id = self.decode_job_id.get().wrapping_add(1);
@@ -143,11 +148,12 @@ impl ViewerController {
         let started = std::time::Instant::now();
         glib::MainContext::default().spawn_local(async move {
             let result = crate::decode::decode_texture(&path).await;
-            this.finish_decode(decode_id, path, name, size_bytes, result, started);
+            this.finish_decode(decode_id, path, name, size_bytes, result, started, stamp);
         });
     }
 
     /// Apply a finished decode, unless a newer `load_file` superseded it.
+    #[allow(clippy::too_many_arguments)]
     fn finish_decode(
         &self,
         job_id: u64,
@@ -156,6 +162,7 @@ impl ViewerController {
         size_bytes: Option<u64>,
         result: anyhow::Result<gtk::gdk::Texture>,
         started: std::time::Instant,
+        stamp: cache::FileStamp,
     ) {
         if job_id != self.decode_job_id.get() {
             // Late result for a file the user already navigated away from.
@@ -181,7 +188,18 @@ impl ViewerController {
                 };
                 self.overlay.set_texture(texture.clone());
                 self.emit_file_loaded(info);
-                self.start_ocr(path, &texture);
+                // Let the freshly set texture reach the screen before OCR
+                // prep: an oversized image's pixel download blocks the main
+                // thread, and glib's default-idle priority runs after GTK's
+                // redraw, so the first paint isn't hitched by its own OCR.
+                let this = self.clone();
+                glib::idle_add_local_once(move || {
+                    if job_id != this.decode_job_id.get() {
+                        // Superseded while waiting for the idle slot.
+                        return;
+                    }
+                    this.start_ocr(path, &texture, stamp);
+                });
             }
             Err(err) => {
                 tracing::error!("Failed to load image: {err:#}");
@@ -233,7 +251,7 @@ impl ViewerController {
         self.overlay.copy_selection_to_clipboard();
     }
 
-    fn start_ocr(&self, path: PathBuf, texture: &gtk::gdk::Texture) {
+    fn start_ocr(&self, path: PathBuf, texture: &gtk::gdk::Texture, stamp: cache::FileStamp) {
         self.overlay.set_ocr_busy(true);
         self.overlay.set_ocr_result(None);
 
@@ -261,7 +279,7 @@ impl ViewerController {
         // content, and future opens then hit it without downloading either.
         let downscale_target = plan.map(|p| (p.target_w, p.target_h));
         let entry = cache::cache_dir()
-            .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target));
+            .map(|root| cache::ocr_cache_path(&root, &path, &ocr_opts, downscale_target, stamp));
         let probably_cached = entry.as_deref().is_some_and(|e| e.exists());
 
         let prep_started = std::time::Instant::now();
