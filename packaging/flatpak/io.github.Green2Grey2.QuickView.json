@@ -1,5 +1,5 @@
 {
-  "app-id": "com.example.QuickView",
+  "app-id": "io.github.Green2Grey2.QuickView",
   "runtime": "org.gnome.Platform",
   "runtime-version": "49",
   "sdk": "org.gnome.Sdk",
@@ -36,9 +36,9 @@
       "build-commands": [
         "cargo build --release --locked",
         "install -Dm755 target/release/quickview /app/bin/quickview",
-        "install -Dm644 assets/desktop/com.example.QuickView.desktop /app/share/applications/com.example.QuickView.desktop",
-        "install -Dm644 assets/metainfo/com.example.QuickView.metainfo.xml /app/share/metainfo/com.example.QuickView.metainfo.xml",
-        "install -Dm644 assets/icons/hicolor/scalable/apps/com.example.QuickView.svg /app/share/icons/hicolor/scalable/apps/com.example.QuickView.svg",
+        "install -Dm644 assets/desktop/io.github.Green2Grey2.QuickView.desktop /app/share/applications/io.github.Green2Grey2.QuickView.desktop",
+        "install -Dm644 assets/metainfo/io.github.Green2Grey2.QuickView.metainfo.xml /app/share/metainfo/io.github.Green2Grey2.QuickView.metainfo.xml",
+        "install -Dm644 assets/icons/hicolor/scalable/apps/io.github.Green2Grey2.QuickView.svg /app/share/icons/hicolor/scalable/apps/io.github.Green2Grey2.QuickView.svg",
         "install -Dm644 LICENSE /app/share/licenses/quickview/LICENSE"
       ],
       "sources": [

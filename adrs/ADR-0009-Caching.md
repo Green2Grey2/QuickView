@@ -50,8 +50,8 @@ The implementation went **straight to on-disk**, revising the decision above:
   length still misses, and the key is snapshotted *before* tesseract runs so
   a file edited mid-OCR stores its stale result under the old key (which the
   edited file then correctly misses) rather than the new one. The path is
-  derived from the lowercased app name, so the pending app-ID rename does not
-  move it on Linux.
+  derived from the lowercased app name, so the app-ID rename (done:
+  io.github.Green2Grey2.QuickView) did not move it on Linux.
 - Tesseract is currently invoked with no psm/oem flags, so `lang` is the only
   setting and it is in the key. **When OCR settings become configurable
   (Phase 7 hardening: psm/oem, tessdata_fast/best), they must join the key.**

@@ -125,8 +125,11 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
   - optional action for quick preview mode ✅ (`QuickPreview` desktop action)
 - Compositor keybind recipes (niri, Hyprland, Sway) documented
   (`templates/keybind-examples.md` exists but is generic — add per-compositor snippets)
-- Rename placeholder app ID `com.example.QuickView` before wider distribution
-  (touches app ID in `quickview-ui`, `.desktop`, metainfo, icon filename, Flatpak manifest, PKGBUILD)
+- Rename placeholder app ID to `io.github.Green2Grey2.QuickView` ✅
+  (app ID in `quickview-ui`, `.desktop`, metainfo, icon filename, Flatpak
+  manifest, PKGBUILD, and the `ProjectDirs` qualifier in `cache.rs`; Linux
+  cache/config paths derive from the lowercased app name, so
+  `~/.cache/quickview/` did not move and existing OCR cache entries stay valid)
 - Quick Preview dismissal completeness (FR-002):
   - click outside closes ✅ — layer-shell path: surface anchored to all edges,
     transparent backdrop (`gtk::Overlay` sibling of the centered panel) closes

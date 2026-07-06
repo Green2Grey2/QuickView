@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.example.QuickView</id>
+  <id>io.github.Green2Grey2.QuickView</id>
   <name>QuickView</name>
   <summary>Wayland image viewer with OCR text selection</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -16,7 +16,7 @@
   <url type="homepage">https://github.com/Green2Grey2/QuickView</url>
   <url type="bugtracker">https://github.com/Green2Grey2/QuickView/issues</url>
 
-  <launchable type="desktop-id">com.example.QuickView.desktop</launchable>
+  <launchable type="desktop-id">io.github.Green2Grey2.QuickView.desktop</launchable>
 
   <provides>
     <binary>quickview</binary>

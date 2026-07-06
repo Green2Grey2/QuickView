@@ -54,7 +54,7 @@ struct PreviewHandle {
 /// [`ipc::to_argv`] ever reaches GLib, so GLib never sees the real CLI flags.
 pub fn run(opts: LaunchOptions) -> Result<i32> {
     let app = adw::Application::builder()
-        .application_id("com.example.QuickView")
+        .application_id("io.github.Green2Grey2.QuickView")
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
         .build();
 

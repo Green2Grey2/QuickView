@@ -1,6 +1,6 @@
 {
-  "_note": "This is a starter template. The canonical manifest is packaging/flatpak/com.example.QuickView.json.",
-  "app-id": "com.example.QuickView",
+  "_note": "This is a starter template. The canonical manifest is packaging/flatpak/io.github.Green2Grey2.QuickView.json.",
+  "app-id": "io.github.Green2Grey2.QuickView",
   "runtime": "org.gnome.Platform",
   "runtime-version": "46",
   "sdk": "org.gnome.Sdk",
