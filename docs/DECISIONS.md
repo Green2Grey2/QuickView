@@ -29,7 +29,7 @@ For more detail, see the ADRs in `adrs/`.
 ### UX + data
 - **Selection:** word boxes + drag selection; render highlight overlay
 - **Clipboard:** GTK native clipboard API; optional `wl-copy` fallback
-- **Caching:** start in-memory; add persistent cache when needed
+- **Caching:** on-disk OCR cache keyed by path+lang+mtime+size (implemented; revised from "in-memory first" — see ADR-0009 implementation notes)
 
 ---
 
@@ -129,11 +129,15 @@ Recommendation: implement TSV first; add hOCR later as debug/export.
 
 ### 7) Caching
 
-**Recommended**
-- In-memory cache keyed by `{path, mtime, size, lang, settings}`.
+**Implemented (revised from the original in-memory recommendation)**
+- On-disk OCR cache: blake3 key of `{path, lang, mtime, size}` → JSON under
+  `~/.cache/quickview/ocr/`. Chosen because Quick Preview spawns a fresh
+  process per invocation, so only a persistent cache helps it. No eviction in
+  v1; when OCR settings (psm/oem, tessdata variant) become configurable they
+  must join the key. See ADR-0009 implementation notes.
 
-**Alternative**
-- Persistent cache (SQLite) when repeated OCR is common.
+**Future**
+- Persistent cache (SQLite) with eviction — Phase 8.
 
 ---
 

@@ -8,7 +8,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 
 use quickview_core::{
-    fs,
+    cache, fs,
     ocr::{tesseract, tsv},
 };
 
@@ -224,10 +224,27 @@ impl ViewerController {
         let new_id = self.ocr_job_id.get().wrapping_add(1);
         self.ocr_job_id.set(new_id);
 
+        // All cache I/O stays on the worker thread; hits flow through the same
+        // channel as fresh results, so the job-id guard applies unchanged.
+        let cache_root = cache::cache_dir();
         std::thread::spawn(move || {
             let r = (|| {
+                if let Some(root) = &cache_root {
+                    if let Some(cached) = cache::load_ocr(root, &path, &lang) {
+                        tracing::debug!("OCR cache hit for {}", path.display());
+                        return Ok(cached);
+                    }
+                }
                 let tsv_out = tesseract::run_tesseract_tsv(&path, &lang)?;
                 let parsed = tsv::parse_tesseract_tsv(&tsv_out)?;
+                // Empty results are cached too (text-free images shouldn't
+                // re-run tesseract); failures are not, so transient errors
+                // retry on the next open.
+                if let Some(root) = &cache_root {
+                    if let Err(err) = cache::store_ocr(root, &path, &lang, &parsed) {
+                        tracing::warn!("failed to write OCR cache: {err:#}");
+                    }
+                }
                 Ok(parsed)
             })();
 

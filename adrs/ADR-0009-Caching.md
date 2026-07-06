@@ -35,3 +35,28 @@ Cache key should include:
 - **Persistent on-disk cache from day one** — more complex, needs eviction policy and cleanup; deferred to a later phase
 - **No cache** — simplest but OCR re-runs on every open, noticeably slow for repeat views
 
+## Implementation notes (2026-07-05)
+
+The implementation went **straight to on-disk**, revising the decision above:
+
+- Quick Preview spawns a fresh process per invocation, so an in-memory cache
+  buys the flagship workflow nothing; on-disk also covers in-session revisits
+  (re-reading a few-KB JSON is effectively instant).
+- `cache.rs` key derivation already existed: blake3 of
+  `path + lang + mtime + size` → `<cache>/ocr/<key>.json` (Linux:
+  `~/.cache/quickview/ocr/`). Staleness needs no invalidation logic — an
+  edited file produces a new key and is simply a miss. The path is derived
+  from the lowercased app name, so the pending app-ID rename does not move it
+  on Linux.
+- Tesseract is currently invoked with no psm/oem flags, so `lang` is the only
+  setting and it is in the key. **When OCR settings become configurable
+  (Phase 7 hardening: psm/oem, tessdata_fast/best), they must join the key.**
+- Writes are atomic (temp file + rename in the same directory): concurrent
+  QuickView processes are a designed use case.
+- Empty results are cached (text-free images shouldn't re-run tesseract);
+  failures are not cached, so transient errors retry on the next open. A
+  failed cache write is a warning, never a failed OCR.
+- **No eviction in v1.** Entries are a few KB; the directory grows unbounded
+  but slowly. Manual cleanup: `rm -rf ~/.cache/quickview/ocr`. Real eviction
+  arrives with the Phase 8 persistent SQLite cache that replaces this scheme.
+
