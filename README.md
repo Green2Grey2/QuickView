@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/hicolor/scalable/apps/com.example.QuickView.svg" width="128" height="128" alt="QuickView icon">
+  <img src="assets/icons/hicolor/scalable/apps/io.github.Green2Grey2.QuickView.svg" width="128" height="128" alt="QuickView icon">
 </p>
 
 <h1 align="center">QuickView</h1>

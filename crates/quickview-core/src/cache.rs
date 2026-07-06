@@ -16,8 +16,11 @@ use crate::ocr::models::OcrResult;
 ///
 /// On Linux this is typically: `~/.cache/quickview/`.
 pub fn cache_dir() -> Option<PathBuf> {
-    // qualifier, org, app
-    let proj = ProjectDirs::from("com", "example", "QuickView")?;
+    // qualifier, org, app — must stay in sync with the application ID
+    // io.github.Green2Grey2.QuickView. On Linux the path only uses the
+    // lowercased app name (~/.cache/quickview/), so renaming the ID did not
+    // move the cache and pre-rename entries remain valid.
+    let proj = ProjectDirs::from("io.github", "Green2Grey2", "QuickView")?;
     Some(proj.cache_dir().to_path_buf())
 }
 
