@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! quickview --mode=<quick-preview|full-viewer> --lang=<lang> \
-//!     [--tessdata-dir=<dir>] --file=<abs path>
+//!     [--tessdata-dir=<dir>] --max-ocr-dim=<n> --file=<abs path>
 //! ```
 //!
 //! Every value is glued to its key in a single `--key=value` token: GLib's
@@ -46,6 +46,7 @@ pub(crate) fn to_argv(opts: &LaunchOptions) -> Vec<String> {
     if let Some(dir) = &opts.ocr.tessdata_dir {
         argv.push(format!("--tessdata-dir={}", dir.to_string_lossy()));
     }
+    argv.push(format!("--max-ocr-dim={}", opts.max_ocr_dimension));
     argv.push(format!("--file={}", opts.file.to_string_lossy()));
     argv
 }
@@ -54,6 +55,7 @@ pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
     let mut mode = None;
     let mut lang = None;
     let mut tessdata_dir: Option<PathBuf> = None;
+    let mut max_ocr_dimension = None;
     let mut file: Option<PathBuf> = None;
 
     for arg in argv.iter().skip(1) {
@@ -71,6 +73,12 @@ pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
             lang = Some(value.to_owned());
         } else if let Some(value) = arg.strip_prefix("--tessdata-dir=") {
             tessdata_dir = Some(PathBuf::from(value));
+        } else if let Some(value) = arg.strip_prefix("--max-ocr-dim=") {
+            max_ocr_dimension = Some(
+                value
+                    .parse::<u32>()
+                    .map_err(|err| anyhow!("bad --max-ocr-dim {value:?}: {err}"))?,
+            );
         } else if let Some(value) = arg.strip_prefix("--file=") {
             file = Some(PathBuf::from(value));
         } else {
@@ -84,6 +92,7 @@ pub(crate) fn from_argv(argv: &[OsString]) -> Result<LaunchOptions> {
             lang: lang.ok_or_else(|| anyhow!("missing --lang"))?,
             tessdata_dir,
         },
+        max_ocr_dimension: max_ocr_dimension.ok_or_else(|| anyhow!("missing --max-ocr-dim"))?,
         file: file.ok_or_else(|| anyhow!("missing --file"))?,
     })
 }
@@ -100,6 +109,7 @@ mod tests {
                 lang: lang.to_owned(),
                 tessdata_dir: None,
             },
+            max_ocr_dimension: 4000,
         }
     }
 
@@ -138,6 +148,11 @@ mod tests {
         original.ocr.tessdata_dir = Some(PathBuf::from("/opt/tess data/fast"));
         assert_eq!(round_trip(&original), original);
 
+        // Guardrail disabled round-trips too.
+        let mut disabled = opts(Mode::QuickPreview, "eng", "/tmp/a.png");
+        disabled.max_ocr_dimension = 0;
+        assert_eq!(round_trip(&disabled), disabled);
+
         // Absent stays absent (no --tessdata-dir token emitted at all).
         let without = opts(Mode::QuickPreview, "eng", "/tmp/a.png");
         assert!(!to_argv(&without)
@@ -168,6 +183,14 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(from_argv(&os_argv(&["quickview", "--bogus=x"])).is_err());
+        assert!(from_argv(&os_argv(&[
+            "quickview",
+            "--mode=full-viewer",
+            "--lang=eng",
+            "--max-ocr-dim=lots",
+            "--file=/a"
+        ]))
+        .is_err());
         assert!(from_argv(&os_argv(&[
             "quickview",
             "--mode=sideways",

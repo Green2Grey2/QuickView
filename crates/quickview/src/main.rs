@@ -27,6 +27,11 @@ struct Cli {
     #[arg(long)]
     tessdata_dir: Option<PathBuf>,
 
+    /// Max image dimension (px) before OCR works on a downscaled copy;
+    /// 0 disables. Overrides the config file; defaults to 4000.
+    #[arg(long)]
+    max_ocr_dim: Option<u32>,
+
     /// Image file path. Use '-' (or omit) to read a path from stdin.
     file: Option<String>,
 }
@@ -53,12 +58,13 @@ fn main() -> Result<()> {
     // single-instance app, the primary must never re-resolve a remote
     // invocation's environment or config — only fully resolved values cross
     // the process boundary (see quickview-ui's ipc module).
-    let ocr = resolve_ocr_options(cli.lang, cli.tessdata_dir);
+    let (ocr, max_ocr_dimension) = resolve_ocr_options(cli.lang, cli.tessdata_dir, cli.max_ocr_dim);
 
     let code = quickview_ui::run(quickview_ui::LaunchOptions {
         mode,
         file: file_path,
         ocr,
+        max_ocr_dimension,
     })?;
 
     std::process::exit(code);
@@ -72,8 +78,10 @@ fn main() -> Result<()> {
 fn resolve_ocr_options(
     cli_lang: Option<String>,
     cli_tessdata_dir: Option<PathBuf>,
-) -> quickview_core::ocr::tesseract::OcrOptions {
+    cli_max_ocr_dim: Option<u32>,
+) -> (quickview_core::ocr::tesseract::OcrOptions, u32) {
     use quickview_core::config;
+    use quickview_core::ocr::downscale::DEFAULT_MAX_OCR_DIMENSION;
 
     let cfg = config::config_path()
         .map(|path| {
@@ -85,12 +93,16 @@ fn resolve_ocr_options(
         .unwrap_or_default();
 
     let env_lang = std::env::var("QUICKVIEW_LANG").ok();
-    quickview_core::ocr::tesseract::OcrOptions {
+    let opts = quickview_core::ocr::tesseract::OcrOptions {
         lang: config::resolve_lang(cli_lang.as_deref(), env_lang.as_deref(), &cfg),
         tessdata_dir: non_blank(cli_tessdata_dir)
             .or_else(|| non_blank(cfg.ocr.tessdata_dir.clone()))
             .map(absolutize),
-    }
+    };
+    let max_ocr_dimension = cli_max_ocr_dim
+        .or(cfg.ocr.max_dimension)
+        .unwrap_or(DEFAULT_MAX_OCR_DIMENSION);
+    (opts, max_ocr_dimension)
 }
 
 /// Blank is unset, at each precedence level — same rule as `resolve_lang`.

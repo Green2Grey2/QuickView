@@ -1,10 +1,10 @@
 //! On-disk OCR result cache.
 //!
 //! Entries are JSON files under `<cache_root>/ocr/`, keyed by a blake3 hash of
-//! the image path, the OCR settings (language, tessdata dir), and file
-//! mtime+size — so an edited file is simply a cache miss (no invalidation
-//! logic needed). There is no eviction in
-//! v1: entries are a few KB each, and users can clear the directory manually.
+//! the image path, the OCR settings (language, tessdata dir), the effective
+//! downscale target, and file mtime+size — so an edited file is simply a
+//! cache miss (no invalidation logic needed). There is no eviction in v1:
+//! entries are a few KB each, and users can clear the directory manually.
 //! Phase 8's persistent SQLite cache is the planned successor (ADR-0009).
 
 use std::path::{Path, PathBuf};
@@ -20,7 +20,20 @@ pub fn cache_dir() -> Option<PathBuf> {
     Some(crate::config::project_dirs()?.cache_dir().to_path_buf())
 }
 
-pub fn ocr_cache_path(cache_root: &Path, file: &Path, opts: &OcrOptions) -> PathBuf {
+/// Compute the cache entry path for one OCR run.
+///
+/// `downscale_target` is the *effective* image size tesseract will see:
+/// `None` for a full-resolution run, `Some((w, h))` when the max-dimension
+/// guardrail feeds it a downscaled copy. Hashing the effective target rather
+/// than the configured threshold keeps below-threshold images' entries valid
+/// across `max_dimension` edits — per ADR-0009, only inputs that change the
+/// recognition output join the key.
+pub fn ocr_cache_path(
+    cache_root: &Path,
+    file: &Path,
+    opts: &OcrOptions,
+    downscale_target: Option<(u32, u32)>,
+) -> PathBuf {
     // Include file metadata to avoid stale caches. Full nanosecond mtime:
     // whole seconds would alias a same-second rewrite of the same path with
     // an unchanged byte length (rapid screenshot/editor saves).
@@ -50,6 +63,11 @@ pub fn ocr_cache_path(cache_root: &Path, file: &Path, opts: &OcrOptions) -> Path
             hasher.update(&[0]);
         }
     }
+    hasher.update(b"\0");
+    match downscale_target {
+        Some((w, h)) => hasher.update(format!("{w}x{h}").as_bytes()),
+        None => hasher.update(b"full"),
+    };
     hasher.update(b"\0");
     hasher.update(&mtime.to_le_bytes());
     hasher.update(&size.to_le_bytes());
@@ -157,45 +175,70 @@ mod tests {
 
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let base = ocr_cache_path(root, &img, &eng());
+        let base = ocr_cache_path(root, &img, &eng(), None);
 
         // Same inputs -> same key.
-        assert_eq!(base, ocr_cache_path(root, &img, &eng()));
+        assert_eq!(base, ocr_cache_path(root, &img, &eng(), None));
 
         // Different language -> different key.
         let deu = OcrOptions {
             lang: "deu".into(),
             ..eng()
         };
-        assert_ne!(base, ocr_cache_path(root, &img, &deu));
+        assert_ne!(base, ocr_cache_path(root, &img, &deu, None));
 
         // Different path -> different key.
         let img2 = dir.path().join("b.png");
         std::fs::write(&img2, b"xx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img2, &eng()));
+        assert_ne!(base, ocr_cache_path(root, &img2, &eng(), None));
 
         // Different size -> different key.
         std::fs::write(&img, b"xxxx").unwrap();
-        assert_ne!(base, ocr_cache_path(root, &img, &eng()));
+        assert_ne!(base, ocr_cache_path(root, &img, &eng(), None));
 
         // Different mtime (same size) -> different key.
         std::fs::write(&img, b"xx").unwrap();
-        let before = ocr_cache_path(root, &img, &eng());
+        let before = ocr_cache_path(root, &img, &eng(), None);
         let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
         std::fs::File::open(&img)
             .unwrap()
             .set_modified(old)
             .unwrap();
-        assert_ne!(before, ocr_cache_path(root, &img, &eng()));
+        assert_ne!(before, ocr_cache_path(root, &img, &eng(), None));
 
         // Subsecond mtime change (same second, same size) -> different key.
         let with_key = |t| {
             std::fs::File::open(&img).unwrap().set_modified(t).unwrap();
-            ocr_cache_path(root, &img, &eng())
+            ocr_cache_path(root, &img, &eng(), None)
         };
         assert_ne!(
             with_key(old + std::time::Duration::from_nanos(1)),
             with_key(old)
+        );
+    }
+
+    #[test]
+    fn key_changes_with_downscale_target_only_when_downscaled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, b"xx").unwrap();
+
+        let with_target = |t| ocr_cache_path(root, &img, &eng(), t);
+
+        // A downscaled run is keyed apart from full resolution, and targets
+        // are keyed apart from each other.
+        assert_ne!(with_target(None), with_target(Some((4000, 2000))));
+        assert_ne!(
+            with_target(Some((4000, 2000))),
+            with_target(Some((2000, 1000)))
+        );
+        // Same effective target -> same key (threshold edits don't invalidate
+        // below-threshold images, which always hash as full resolution).
+        assert_eq!(with_target(None), with_target(None));
+        assert_eq!(
+            with_target(Some((4000, 2000))),
+            with_target(Some((4000, 2000)))
         );
     }
 
@@ -211,7 +254,7 @@ mod tests {
                 lang: "eng".into(),
                 tessdata_dir: d.map(PathBuf::from),
             };
-            ocr_cache_path(root, &img, &opts)
+            ocr_cache_path(root, &img, &opts, None)
         };
 
         // Some(dir) differs from None, and dirs differ from each other.
@@ -234,7 +277,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None);
 
         let result = sample_result();
         store_ocr(&entry, &result).unwrap();
@@ -267,7 +310,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None);
         assert!(load_ocr(&entry).is_none());
     }
 
@@ -277,7 +320,7 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let entry = ocr_cache_path(dir.path(), &img, &eng());
+        let entry = ocr_cache_path(dir.path(), &img, &eng(), None);
         std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
         std::fs::write(&entry, b"{not json").unwrap();
 

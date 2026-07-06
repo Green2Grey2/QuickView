@@ -20,7 +20,7 @@ pub fn present(app: &adw::Application, opts: &LaunchOptions) {
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&title));
 
-    let viewer = ViewerController::new(opts.file.clone(), opts.ocr.clone());
+    let viewer = ViewerController::new(opts.file.clone(), opts.ocr.clone(), opts.max_ocr_dimension);
 
     {
         let title = title.clone();

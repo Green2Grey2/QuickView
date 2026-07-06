@@ -53,10 +53,12 @@ The implementation went **straight to on-disk**, revising the decision above:
   derived from the lowercased app name, so the app-ID rename (done:
   io.github.Green2Grey2.QuickView) did not move it on Linux.
 - Tesseract is invoked with no psm/oem flags, so the OCR settings in the key
-  are `lang` and (since Phase 7's config work) the optional `tessdata_dir`,
-  hashed with a presence marker so `None` and empty stay distinct. **The rule
-  stands: any newly configurable OCR setting (psm/oem, the downscale target)
-  must join the key.**
+  are `lang`, the optional `tessdata_dir` (presence marker keeps `None` and
+  empty distinct), and the **effective** downscale target (`full` or
+  `WxH`) — the target rather than the configured `max_dimension` threshold,
+  so below-threshold images keep their entries across threshold edits. **The
+  rule stands: any newly configurable OCR setting (psm/oem) must join the
+  key.**
 - Writes are atomic (temp file + rename in the same directory): concurrent
   QuickView processes are a designed use case.
 - Entries are created `0600` in `0700` directories — they hold recognized
