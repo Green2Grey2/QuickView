@@ -229,19 +229,23 @@ impl ViewerController {
         let cache_root = cache::cache_dir();
         std::thread::spawn(move || {
             let r = (|| {
-                if let Some(root) = &cache_root {
-                    if let Some(cached) = cache::load_ocr(root, &path, &lang) {
-                        tracing::debug!("OCR cache hit for {}", path.display());
-                        return Ok(cached);
-                    }
+                // Snapshot the cache key before OCR runs: if the file is
+                // edited mid-OCR, the stale result lands under the old key,
+                // which the edited file then correctly misses.
+                let entry = cache_root
+                    .as_deref()
+                    .map(|root| cache::ocr_cache_path(root, &path, &lang));
+                if let Some(cached) = entry.as_deref().and_then(cache::load_ocr) {
+                    tracing::debug!("OCR cache hit for {}", path.display());
+                    return Ok(cached);
                 }
                 let tsv_out = tesseract::run_tesseract_tsv(&path, &lang)?;
                 let parsed = tsv::parse_tesseract_tsv(&tsv_out)?;
                 // Empty results are cached too (text-free images shouldn't
                 // re-run tesseract); failures are not, so transient errors
                 // retry on the next open.
-                if let Some(root) = &cache_root {
-                    if let Err(err) = cache::store_ocr(root, &path, &lang, &parsed) {
+                if let Some(entry) = &entry {
+                    if let Err(err) = cache::store_ocr(entry, &parsed) {
                         tracing::warn!("failed to write OCR cache: {err:#}");
                     }
                 }

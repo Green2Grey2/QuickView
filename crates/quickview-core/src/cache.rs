@@ -22,13 +22,15 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 pub fn ocr_cache_path(cache_root: &Path, file: &Path, lang: &str) -> PathBuf {
-    // Include file metadata to avoid stale caches.
+    // Include file metadata to avoid stale caches. Full nanosecond mtime:
+    // whole seconds would alias a same-second rewrite of the same path with
+    // an unchanged byte length (rapid screenshot/editor saves).
     let meta = std::fs::metadata(file).ok();
     let mtime = meta
         .as_ref()
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
 
@@ -44,38 +46,45 @@ pub fn ocr_cache_path(cache_root: &Path, file: &Path, lang: &str) -> PathBuf {
     cache_root.join("ocr").join(format!("{key}.json"))
 }
 
-/// Load a cached OCR result for `file`, or `None` on a miss.
+/// Load the cached OCR result at `entry` (from [`ocr_cache_path`]), or `None`
+/// on a miss.
 ///
 /// Any failure (entry absent, unreadable, corrupt, or written by an
 /// incompatible older schema) is treated as a miss: OCR re-runs and the entry
 /// is overwritten.
-pub fn load_ocr(cache_root: &Path, file: &Path, lang: &str) -> Option<OcrResult> {
-    let path = ocr_cache_path(cache_root, file, lang);
-    let bytes = std::fs::read(path).ok()?;
+pub fn load_ocr(entry: &Path) -> Option<OcrResult> {
+    let bytes = std::fs::read(entry).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Store an OCR result for `file`.
+/// Store an OCR result at `entry` (from [`ocr_cache_path`]).
 ///
-/// The write is atomic (temp file + rename in the same directory): concurrent
-/// QuickView processes are a designed use case (Quick Preview spawns one per
-/// invocation), so a torn write must never be readable.
-pub fn store_ocr(
-    cache_root: &Path,
-    file: &Path,
-    lang: &str,
-    result: &OcrResult,
-) -> anyhow::Result<()> {
-    let path = ocr_cache_path(cache_root, file, lang);
-    let dir = path
+/// Callers must derive `entry` *before* running OCR, so that a file edited
+/// mid-OCR stores its (now stale) result under the old key — which the edited
+/// file then correctly misses — rather than under the new metadata's key.
+///
+/// The write is atomic (unique temp file + rename in the same directory):
+/// concurrent QuickView processes are a designed use case (Quick Preview
+/// spawns one per invocation), so a torn write must never be readable.
+pub fn store_ocr(entry: &Path, result: &OcrResult) -> anyhow::Result<()> {
+    let dir = entry
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("cache path has no parent: {}", path.display()))?;
+        .ok_or_else(|| anyhow::anyhow!("cache path has no parent: {}", entry.display()))?;
     std::fs::create_dir_all(dir)?;
 
     let json = serde_json::to_vec(result)?;
-    let tmp = path.with_extension(format!("json.tmp-{}", std::process::id()));
-    std::fs::write(&tmp, &json)?;
-    if let Err(err) = std::fs::rename(&tmp, &path) {
+    // pid + per-process counter: unique even across concurrent same-key
+    // writes from this process and from other QuickView processes.
+    static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = entry.with_extension(format!("json.tmp-{}-{seq}", std::process::id()));
+    if let Err(err) = std::fs::write(&tmp, &json) {
+        // A partial write (e.g. disk full) may have created the file; there
+        // is no eviction pass in v1 to sweep it up later.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err.into());
+    }
+    if let Err(err) = std::fs::rename(&tmp, entry) {
         let _ = std::fs::remove_file(&tmp);
         return Err(err.into());
     }
@@ -137,6 +146,16 @@ mod tests {
             .set_modified(old)
             .unwrap();
         assert_ne!(before, ocr_cache_path(root, &img, "eng"));
+
+        // Subsecond mtime change (same second, same size) -> different key.
+        let with_key = |t| {
+            std::fs::File::open(&img).unwrap().set_modified(t).unwrap();
+            ocr_cache_path(root, &img, "eng")
+        };
+        assert_ne!(
+            with_key(old + std::time::Duration::from_nanos(1)),
+            with_key(old)
+        );
     }
 
     #[test]
@@ -144,11 +163,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
+        let entry = ocr_cache_path(dir.path(), &img, "eng");
 
         let result = sample_result();
-        store_ocr(dir.path(), &img, "eng", &result).unwrap();
+        store_ocr(&entry, &result).unwrap();
 
-        let loaded = load_ocr(dir.path(), &img, "eng").expect("cache hit");
+        let loaded = load_ocr(&entry).expect("cache hit");
         assert_eq!(loaded.words.len(), 1);
         assert_eq!(loaded.words[0].text, "hello");
         assert_eq!(loaded.words[0].bbox, result.words[0].bbox);
@@ -170,7 +190,8 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        assert!(load_ocr(dir.path(), &img, "eng").is_none());
+        let entry = ocr_cache_path(dir.path(), &img, "eng");
+        assert!(load_ocr(&entry).is_none());
     }
 
     #[test]
@@ -179,10 +200,10 @@ mod tests {
         let img = dir.path().join("a.png");
         std::fs::write(&img, b"xx").unwrap();
 
-        let path = ocr_cache_path(dir.path(), &img, "eng");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"{not json").unwrap();
+        let entry = ocr_cache_path(dir.path(), &img, "eng");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, b"{not json").unwrap();
 
-        assert!(load_ocr(dir.path(), &img, "eng").is_none());
+        assert!(load_ocr(&entry).is_none());
     }
 }
