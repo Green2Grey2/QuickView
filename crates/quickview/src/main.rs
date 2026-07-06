@@ -53,7 +53,7 @@ fn main() -> Result<()> {
 }
 
 fn resolve_input_path(arg: Option<String>) -> Result<PathBuf> {
-    match arg.as_deref() {
+    let path = match arg.as_deref() {
         None | Some("-") => {
             let mut buf = String::new();
             io::stdin().read_to_string(&mut buf)?;
@@ -61,8 +61,40 @@ fn resolve_input_path(arg: Option<String>) -> Result<PathBuf> {
             if path.is_empty() {
                 return Err(anyhow!("No input path provided (stdin was empty)."));
             }
-            Ok(PathBuf::from(path))
+            PathBuf::from(path)
         }
-        Some(p) => Ok(PathBuf::from(p)),
+        Some(p) => PathBuf::from(p),
+    };
+    // Canonicalize at the app boundary so every downstream consumer sees one
+    // absolute, symlink-resolved spelling: the OCR cache key must not depend
+    // on the invocation cwd (a relative path hashes as its literal string),
+    // and directory navigation needs a real parent dir ("image.png" has an
+    // empty one). A missing file falls through unchanged so the viewer can
+    // show its load-failed state instead of erroring here.
+    Ok(std::fs::canonicalize(&path).unwrap_or(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_canonicalizes_existing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let img = dir.path().join("a.png");
+        std::fs::write(&img, b"x").unwrap();
+
+        // A dot-and-dotdot spelling of the same file resolves to one form.
+        let indirect = dir.path().join(".").join("sub").join("..").join("a.png");
+        let resolved = resolve_input_path(Some(indirect.display().to_string())).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(&img).unwrap());
+        assert!(resolved.is_absolute());
+    }
+
+    #[test]
+    fn resolve_passes_missing_paths_through() {
+        let p = resolve_input_path(Some("does-not-exist.png".into())).unwrap();
+        assert_eq!(p, PathBuf::from("does-not-exist.png"));
     }
 }

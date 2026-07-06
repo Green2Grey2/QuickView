@@ -18,3 +18,5 @@ clap = { version = "4", features = ["derive"] }
 
 quickview-ui = { path = "../quickview-ui" }
 
+[dev-dependencies]
+tempfile = "3"

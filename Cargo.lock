@@ -1640,6 +1640,7 @@ dependencies = [
  "anyhow",
  "clap",
  "quickview-ui",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
