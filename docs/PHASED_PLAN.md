@@ -128,13 +128,18 @@ If priorities change, you can reshuffle phases, but try to keep the “render fi
 - Rename placeholder app ID `com.example.QuickView` before wider distribution
   (touches app ID in `quickview-ui`, `.desktop`, metainfo, icon filename, Flatpak manifest, PKGBUILD)
 - Quick Preview dismissal completeness (FR-002):
-  - click outside closes — layer-shell path: anchor surface to all edges with a
-    transparent backdrop around the image; fallback path: `GestureClick` on the
-    window plus focus-loss handling
-  - single-instance toggle — `GApplication` uniqueness with `HANDLES_COMMAND_LINE`
-    (or `open`) so a second `--quick-preview` invocation reaches the running
-    instance and toggles/replaces the window instead of spawning a new process;
-    requires revisiting the current `run_with_args(&[])` workaround
+  - click outside closes ✅ — layer-shell path: surface anchored to all edges,
+    transparent backdrop (`gtk::Overlay` sibling of the centered panel) closes
+    on click; fallback path closes on focus loss only (a `GestureClick` on the
+    window, as originally sketched, would also fire for clicks *inside* the
+    preview and break drag-select, FR-005)
+  - single-instance toggle ✅ — `GApplication` uniqueness with
+    `HANDLES_COMMAND_LINE`; the invoking process resolves everything (clap,
+    stdin, canonicalization) and forwards a canonical synthetic argv, so a
+    second `--quick-preview` invocation toggles the open preview (same file)
+    or replaces its content (different file). This retired the
+    `run_with_args(&[])` workaround: GLib now receives a sanitized argv we
+    build ourselves.
 - Optional GNOME Sushi-compatible DBus interface (advanced / optional)
 
 **Definition of done**

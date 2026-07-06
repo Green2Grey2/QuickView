@@ -80,7 +80,6 @@ impl ViewerController {
         self.overlay.clone()
     }
 
-    #[allow(dead_code)]
     pub fn current_file(&self) -> PathBuf {
         self.current_file.borrow().clone()
     }

@@ -47,7 +47,13 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Async, sandboxed image loading (glycin loader process when installed,
   runtime-probed once per session; in-process GDK decoding on a worker thread
   otherwise — fallback is session-wide only, never per-file)
-- Quick Preview window (borderless, layer-shell, Space/Esc dismiss)
+- Quick Preview window (borderless, layer-shell, Space/Esc dismiss,
+  click-outside-to-close via transparent backdrop; focus-loss close on the
+  no-layer-shell fallback path)
+- Single-instance app (`HANDLES_COMMAND_LINE` + canonical synthetic argv):
+  repeating a `--quick-preview` invocation toggles the preview closed, a
+  different file replaces its content, full-viewer invocations open new
+  windows in the primary instance
 - Full Viewer window (headerbar, arrow key navigation)
 - File info in the headerbar (filename, dimensions, file size)
 - Async OCR (Tesseract TSV → word bounding boxes)
@@ -59,7 +65,6 @@ The scaffold is functional with image display, async OCR pipeline, drag-select o
 - Zoom & pan (Ctrl+scroll, pinch, +/- keys, middle-drag pan) via custom `ZoomableCanvas` widget
 
 ### What's not implemented yet:
-- Quick Preview click-outside-to-close and single-instance toggle
 - Performance benchmarks
 
 ## Development
